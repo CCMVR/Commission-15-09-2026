@@ -1,0 +1,183 @@
+﻿<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Commission Enfance Jeunesse - Inscription des Élus aux Structures</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+
+    <!-- 1. EN-TÊTE PRINCIPAL AVEC LOGO -->
+    <header class="header-container">
+        <div class="header-content">
+            <div class="header-brand">
+                <img src="logo.png" alt="Logo de la collectivité" class="header-logo" onerror="this.style.display='none'">
+                <div class="header-title-group">
+                    <h1>Commission Enfance Jeunesse Solidarités Prévention</h1>
+                    <p>Outil d'inscription et de positionnement des élus sur les structures du territoire</p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <div id="syncBadge" class="sync-badge syncing" title="État de connexion Supabase">
+                    <span class="sync-dot"></span>
+                    <span id="syncText">Connexion...</span>
+                </div>
+                <button id="btnOpenSqlModal" class="btn btn-secondary" title="Voir le script SQL de création de table Supabase">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"></ellipse><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"></path><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"></path></svg>
+                    Script SQL Supabase
+                </button>
+            </div>
+        </div>
+    </header>
+
+    <!-- 2. PANNEAU DIDACTIQUE : MARCHE À SUIVRE -->
+    <section class="instructions-card">
+        <div class="instructions-inner">
+            <div class="instructions-header">
+                <div class="instructions-title">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
+                    <span>Marche à suivre pour formuler vos vœux d'investissement</span>
+                </div>
+            </div>
+            <div class="instructions-steps">
+                <div class="instruction-step">
+                    <div class="step-number">1</div>
+                    <div class="step-text">
+                        <strong>Repérez votre nom</strong> dans la liste des élus (colonne de gauche avec votre commune de rattachement).
+                    </div>
+                </div>
+                <div class="instruction-step">
+                    <div class="step-number">2</div>
+                    <div class="step-text">
+                        <strong>Règle de neutralité</strong> : les structures situées sur votre propre commune sont <em>grisées</em> et impossibles à choisir.
+                    </div>
+                </div>
+                <div class="instruction-step">
+                    <div class="step-number">3</div>
+                    <div class="step-text">
+                        <strong>Attribuez vos vœux</strong> : cliquez sur la case d'une structure pour lui attribuer votre <em>Choix 1</em>, puis <em>Choix 2</em>, etc. (jusqu'à 5 choix max).
+                    </div>
+                </div>
+                <div class="instruction-step">
+                    <div class="step-number">4</div>
+                    <div class="step-text">
+                        <strong>Ajustez ou annulez</strong> : un nouveau clic sur une case sélectionnée l'annule et réorganise automatiquement l'ordre de vos rangs.
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- 3. BARRE D'OUTILS ET STATISTIQUES -->
+    <section class="toolbar-container">
+        <div class="stats-bar">
+            <div class="stat-pill">
+                <span>Élus inscrits :</span>
+                <span id="statElusInscrits" class="stat-val">0 / 32</span>
+            </div>
+            <div class="stat-pill">
+                <span>Total vœux enregistrés :</span>
+                <span id="statTotalVoeux" class="stat-val">0</span>
+            </div>
+            <div class="stat-pill">
+                <span>Structures couvertes :</span>
+                <span id="statStructuresCouvertes" class="stat-val">0 / 20</span>
+            </div>
+        </div>
+
+        <div class="search-and-buttons">
+            <input type="text" id="searchInput" class="search-input" placeholder="🔍 Rechercher un élu ou une commune...">
+            <button id="btnExportCsv" class="btn btn-secondary" title="Exporter les inscriptions au format CSV">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                Exporter CSV
+            </button>
+            <button id="btnPrint" class="btn btn-secondary" title="Imprimer la grille des inscriptions">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 6 2 18 2 18 9"></polyline><path d="M6 18H4a2 2 0 0 1-2-2v-5a2 2 0 0 1 2-2h16a2 2 0 0 1 2 2v5a2 2 0 0 1-2 2h-2"></path><rect x="6" y="14" width="12" height="8"></rect></svg>
+                Imprimer
+            </button>
+            <button id="btnRefresh" class="btn btn-primary" title="Actualiser les données depuis Supabase">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="23 4 23 10 17 10"></polyline><polyline points="1 20 1 14 7 14"></polyline><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path></svg>
+                Actualiser
+            </button>
+        </div>
+    </section>
+
+    <!-- 4. CONTENEUR PRINCIPAL DE LA GRILLE -->
+    <main class="table-wrapper">
+        <div class="table-scroll-container">
+            <table class="matrix-table" id="matrixTable">
+                <thead id="matrixHead">
+                    <!-- Ligne 1 : En-têtes Communes (générée dynamiquement) -->
+                    <!-- Ligne 2 : En-têtes Structures avec types de services (générée dynamiquement) -->
+                </thead>
+                <tbody id="matrixBody">
+                    <!-- Lignes des 32 élus (générées dynamiquement) -->
+                </tbody>
+            </table>
+        </div>
+    </main>
+
+    <!-- 5. PIED DE PAGE -->
+    <footer>
+        <p>Commission Enfance Jeunesse Solidarités Prévention — Communauté de communes Marches du Velay Rochebaron • Hébergé sur GitHub Pages avec persistance Supabase</p>
+    </footer>
+
+    <!-- 6. MODAL SCRIPT SQL SUPABASE (NON-DESTRUCTIF) -->
+    <div id="sqlModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-card">
+            <div class="modal-header">
+                <h3>Script SQL pour Supabase (Non-destructif)</h3>
+                <button id="btnCloseSqlModal" class="btn btn-secondary" style="padding: 0.25rem 0.5rem;">✕</button>
+            </div>
+            <div class="modal-body">
+                <p>Pour activer la persistance distante, copiez ce script SQL et exécutez-le dans le <strong>SQL Editor</strong> de votre projet Supabase. <em>Ce script crée uniquement la table dédiée <code>inscriptions_elus_commission_structures</code> et n'altère aucune autre table.</em></p>
+                <pre class="code-snippet" id="sqlCodeBlock">-- SCRIPT DE CRÉATION DÉDIÉ SUPABASE
+CREATE TABLE IF NOT EXISTS public.inscriptions_elus_commission_structures (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    elu_nom TEXT NOT NULL,
+    elu_commune TEXT NOT NULL,
+    structure_nom TEXT NOT NULL,
+    structure_commune TEXT NOT NULL,
+    choix_rang INTEGER NOT NULL CHECK (choix_rang BETWEEN 1 AND 5),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    CONSTRAINT unique_elu_structure UNIQUE (elu_nom, structure_nom),
+    CONSTRAINT unique_elu_rang UNIQUE (elu_nom, choix_rang)
+);
+
+CREATE INDEX IF NOT EXISTS idx_inscriptions_elu ON public.inscriptions_elus_commission_structures (elu_nom);
+CREATE INDEX IF NOT EXISTS idx_inscriptions_structure ON public.inscriptions_elus_commission_structures (structure_nom);
+
+ALTER TABLE public.inscriptions_elus_commission_structures ENABLE ROW LEVEL SECURITY;
+
+DO $$ 
+BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'inscriptions_elus_commission_structures' AND policyname = 'lecture_publique_inscriptions') THEN
+        CREATE POLICY "lecture_publique_inscriptions" ON public.inscriptions_elus_commission_structures FOR SELECT USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'inscriptions_elus_commission_structures' AND policyname = 'insertion_publique_inscriptions') THEN
+        CREATE POLICY "insertion_publique_inscriptions" ON public.inscriptions_elus_commission_structures FOR INSERT WITH CHECK (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'inscriptions_elus_commission_structures' AND policyname = 'modification_publique_inscriptions') THEN
+        CREATE POLICY "modification_publique_inscriptions" ON public.inscriptions_elus_commission_structures FOR UPDATE USING (true);
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'inscriptions_elus_commission_structures' AND policyname = 'suppression_publique_inscriptions') THEN
+        CREATE POLICY "suppression_publique_inscriptions" ON public.inscriptions_elus_commission_structures FOR DELETE USING (true);
+    END IF;
+END $$;</pre>
+            </div>
+            <div class="modal-footer">
+                <button id="btnCopySql" class="btn btn-primary">Copier le script SQL</button>
+                <button id="btnDismissModal" class="btn btn-secondary">Fermer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 7. TOAST DE NOTIFICATION -->
+    <div id="toastContainer" class="toast-container"></div>
+
+    <!-- 8. SCRIPTS APPLICATIFS -->
+    <script type="module" src="js/app.js"></script>
+</body>
+</html>
