@@ -1,7 +1,7 @@
-﻿# Commission Enfance Jeunesse Solidarités Prévention
-## Outil d'inscription et de positionnement des élus sur les structures d'accueil
+# Commission Enfance Jeunesse Solidarités
+## Outil d'inscription et de positionnement des élus sur les structures du territoire pour y être élus référents
 
-Application web interactive destinée aux membres élus de la commission Enfance Jeunesse Solidarités Prévention de la **Communauté de communes Marches du Velay Rochebaron**, pour leur permettre de se positionner et d'exprimer leurs vœux d'investissement sur les structures d'accueil du territoire.
+Application web interactive destinée aux membres élus de la commission Enfance Jeunesse Solidarités de la **Communauté de communes Marches du Velay Rochebaron**, pour leur permettre de se positionner et d'exprimer leurs vœux d'investissement sur les structures d'accueil du territoire pour y être élus référents.
 
 ---
 

@@ -139,9 +139,10 @@ export const STRUCTURES = [
     "name": "Oxygène",
     "commune": "Les Villettes",
     "services": [
-      "ALSH"
+      "ALSH",
+      "Ados"
     ],
-    "servicesLabel": "ALSH"
+    "servicesLabel": "ALSH et Ados"
   },
   {
     "id": "planet-air",
@@ -184,10 +185,12 @@ export const STRUCTURES = [
     "id": "l-envol",
     "name": "l'Envol",
     "commune": "Bas-en-Basset",
+    "isDsp": true,
     "services": [
-      "Crèche"
+      "Crèche",
+      "DSP"
     ],
-    "servicesLabel": "Crèche"
+    "servicesLabel": "Crèche (DSP)"
   },
   {
     "id": "les-marmousets",

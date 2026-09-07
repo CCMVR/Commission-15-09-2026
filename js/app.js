@@ -1,4 +1,4 @@
-﻿import { ELUS, STRUCTURES, COMMUNES_AVEC_STRUCTURES, isCommuneBlocked } from "./data.js";
+import { ELUS, STRUCTURES, COMMUNES_AVEC_STRUCTURES, isCommuneBlocked } from "./data.js";
 import { supabaseClient } from "./supabase.js";
 
 class CommissionApp {
@@ -8,9 +8,11 @@ class CommissionApp {
         this.communes = COMMUNES_AVEC_STRUCTURES;
         this.inscriptions = [];
         this.searchQuery = "";
+        this.selectedCommuneFilter = "all";
         this.pollingInterval = null;
 
         this.initElements();
+        this.initQuickNavAndFilter();
         this.bindEvents();
         this.renderTableHeaders();
         this.loadData();
@@ -19,9 +21,14 @@ class CommissionApp {
     initElements() {
         this.matrixHead = document.getElementById("matrixHead");
         this.matrixBody = document.getElementById("matrixBody");
+        this.tableScrollContainer = document.getElementById("tableScrollContainer");
         this.syncBadge = document.getElementById("syncBadge");
         this.syncText = document.getElementById("syncText");
         this.searchInput = document.getElementById("searchInput");
+        this.filterCommune = document.getElementById("filterCommune");
+        this.quickNavPills = document.getElementById("quickNavPills");
+        this.btnScrollLeft = document.getElementById("btnScrollLeft");
+        this.btnScrollRight = document.getElementById("btnScrollRight");
         this.btnExportCsv = document.getElementById("btnExportCsv");
         this.btnPrint = document.getElementById("btnPrint");
         this.btnRefresh = document.getElementById("btnRefresh");
@@ -39,12 +46,91 @@ class CommissionApp {
         this.statStructuresCouvertes = document.getElementById("statStructuresCouvertes");
     }
 
+    initQuickNavAndFilter() {
+        if (!this.filterCommune || !this.quickNavPills) return;
+
+        // Remplir le select filter
+        this.communes.forEach(c => {
+            const count = this.structures.filter(s => s.commune === c).length;
+            const opt = document.createElement("option");
+            opt.value = c;
+            opt.textContent = `${c} (${count} structure${count > 1 ? 's' : ''})`;
+            this.filterCommune.appendChild(opt);
+        });
+
+        // Remplir les pastilles de défilement rapide
+        let pillsHtml = `<button class="quick-pill active" data-commune="all">Toutes (${this.structures.length})</button>`;
+        this.communes.forEach(c => {
+            const count = this.structures.filter(s => s.commune === c).length;
+            pillsHtml += `<button class="quick-pill" data-commune="${this.escapeHtml(c)}">${this.escapeHtml(c)} (${count})</button>`;
+        });
+        this.quickNavPills.innerHTML = pillsHtml;
+
+        this.quickNavPills.querySelectorAll(".quick-pill").forEach(pill => {
+            pill.addEventListener("click", () => {
+                const commune = pill.getAttribute("data-commune");
+                if (this.selectedCommuneFilter !== "all" && this.selectedCommuneFilter !== commune) {
+                    this.selectedCommuneFilter = "all";
+                    this.filterCommune.value = "all";
+                    this.renderTableHeaders();
+                    this.renderTableBody();
+                }
+
+                if (commune === "all") {
+                    this.tableScrollContainer.scrollTo({ left: 0, behavior: "smooth" });
+                } else {
+                    const targetTh = this.matrixHead.querySelector(`th[data-commune="${CSS.escape(commune)}"]`);
+                    if (targetTh) {
+                        const containerRect = this.tableScrollContainer.getBoundingClientRect();
+                        const targetRect = targetTh.getBoundingClientRect();
+                        const scrollOffset = targetRect.left - containerRect.left + this.tableScrollContainer.scrollLeft - 340;
+                        this.tableScrollContainer.scrollTo({ left: Math.max(0, scrollOffset), behavior: "smooth" });
+                    }
+                }
+                this.updateActivePill(commune);
+            });
+        });
+    }
+
+    updateActivePill(commune = this.selectedCommuneFilter) {
+        if (!this.quickNavPills) return;
+        this.quickNavPills.querySelectorAll(".quick-pill").forEach(p => {
+            if (p.getAttribute("data-commune") === commune) {
+                p.classList.add("active");
+            } else {
+                p.classList.remove("active");
+            }
+        });
+    }
+
     bindEvents() {
         // Recherche
         this.searchInput.addEventListener("input", (e) => {
             this.searchQuery = e.target.value.toLowerCase().trim();
             this.renderTableBody();
         });
+
+        // Filtre par commune
+        if (this.filterCommune) {
+            this.filterCommune.addEventListener("change", (e) => {
+                this.selectedCommuneFilter = e.target.value;
+                this.renderTableHeaders();
+                this.renderTableBody();
+                this.updateActivePill(this.selectedCommuneFilter);
+            });
+        }
+
+        // Défilement boutons gauche/droite
+        if (this.btnScrollLeft && this.tableScrollContainer) {
+            this.btnScrollLeft.addEventListener("click", () => {
+                this.tableScrollContainer.scrollBy({ left: -350, behavior: "smooth" });
+            });
+        }
+        if (this.btnScrollRight && this.tableScrollContainer) {
+            this.btnScrollRight.addEventListener("click", () => {
+                this.tableScrollContainer.scrollBy({ left: 350, behavior: "smooth" });
+            });
+        }
 
         // Actualisation manuelle
         this.btnRefresh.addEventListener("click", () => {
@@ -61,26 +147,37 @@ class CommissionApp {
             window.print();
         });
 
-        // Modal SQL
-        this.btnOpenSqlModal.addEventListener("click", () => this.openSqlModal());
-        this.btnCloseSqlModal.addEventListener("click", () => this.closeSqlModal());
-        this.btnDismissModal.addEventListener("click", () => this.closeSqlModal());
-        this.btnCopySql.addEventListener("click", () => this.copySqlCode());
+        // Modal SQL (si présent)
+        if (this.btnOpenSqlModal) {
+            this.btnOpenSqlModal.addEventListener("click", () => this.openSqlModal());
+        }
+        if (this.btnCloseSqlModal) {
+            this.btnCloseSqlModal.addEventListener("click", () => this.closeSqlModal());
+        }
+        if (this.btnDismissModal) {
+            this.btnDismissModal.addEventListener("click", () => this.closeSqlModal());
+        }
+        if (this.btnCopySql) {
+            this.btnCopySql.addEventListener("click", () => this.copySqlCode());
+        }
 
-        // Écoute des statuts de sync Supabase
+        // Écoute des statuts de sync Supabase (silencieuse si badge absent)
         supabaseClient.onStatusChange((status, details) => {
             this.updateSyncBadge(status, details);
         });
 
         // Clic sur le badge si table manquante pour ouvrir le modal SQL
-        this.syncBadge.addEventListener("click", () => {
-            if (this.syncBadge.classList.contains("table_missing")) {
-                this.openSqlModal();
-            }
-        });
+        if (this.syncBadge) {
+            this.syncBadge.addEventListener("click", () => {
+                if (this.syncBadge.classList.contains("table_missing")) {
+                    this.openSqlModal();
+                }
+            });
+        }
     }
 
     updateSyncBadge(status, details) {
+        if (!this.syncBadge || !this.syncText) return;
         this.syncBadge.className = `sync-badge ${status}`;
         if (status === "synced") {
             this.syncText.textContent = "Connecté & Synchronisé";
@@ -127,6 +224,10 @@ class CommissionApp {
     }
 
     renderTableHeaders() {
+        const displayedCommunes = this.selectedCommuneFilter === "all"
+            ? this.communes
+            : this.communes.filter(c => c === this.selectedCommuneFilter);
+
         // Ligne 1 : Communes
         let tr1 = `<tr>
             <th class="col-sticky-1" rowspan="2">Élu(e) membre</th>
@@ -134,25 +235,26 @@ class CommissionApp {
 
         // Regroupement des structures par commune
         this.structuresParCommune = {};
-        this.communes.forEach(c => {
+        displayedCommunes.forEach(c => {
             this.structuresParCommune[c] = this.structures.filter(s => s.commune === c);
             const count = this.structuresParCommune[c].length;
-            tr1 += `<th colspan="${count}">${c} <span style="font-size:0.75rem; font-weight:normal; opacity:0.85;">(${count})</span></th>`;
+            tr1 += `<th colspan="${count}" data-commune="${this.escapeHtml(c)}">${this.escapeHtml(c)} <span style="font-size:0.75rem; font-weight:normal; opacity:0.85;">(${count})</span></th>`;
         });
         tr1 += `</tr>`;
 
         // Ligne 2 : Structures individuelles avec badges de service
         let tr2 = `<tr>`;
-        this.communes.forEach(c => {
+        displayedCommunes.forEach(c => {
             const structs = this.structuresParCommune[c];
             structs.forEach(s => {
                 const serviceTags = s.services.map(srv => {
                     const cls = `tag-${srv.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "")}`;
-                    return `<span class="service-tag ${cls}">${srv}</span>`;
+                    const tooltip = srv === "DSP" ? 'title="Délégation de Service Public (seule DSP de la liste)"' : '';
+                    return `<span class="service-tag ${cls}" ${tooltip}>${srv}</span>`;
                 }).join("");
 
                 tr2 += `<th class="th-structure" data-structure-id="${s.id}">
-                    <span class="structure-name">${s.name}</span>
+                    <span class="structure-name">${this.escapeHtml(s.name)}</span>
                     <div class="structure-badge-group">${serviceTags}</div>
                 </th>`;
             });
@@ -176,6 +278,10 @@ class CommissionApp {
             return;
         }
 
+        const displayedCommunes = this.selectedCommuneFilter === "all"
+            ? this.communes
+            : this.communes.filter(c => c === this.selectedCommuneFilter);
+
         let html = "";
         filteredElus.forEach(elu => {
             const eluVoeux = this.inscriptions.filter(i => i.elu_nom === elu.name);
@@ -195,8 +301,8 @@ class CommissionApp {
             </td>`;
 
             // Colonnes structures
-            this.communes.forEach(c => {
-                const structs = this.structuresParCommune[c];
+            displayedCommunes.forEach(c => {
+                const structs = this.structuresParCommune[c] || [];
                 structs.forEach(s => {
                     const blocked = isCommuneBlocked(elu.commune, s.commune);
                     const voeu = eluVoeux.find(v => v.structure_nom === s.name);
@@ -205,15 +311,15 @@ class CommissionApp {
                         html += `<td class="matrix-cell cell-blocked" 
                                      data-elu="${this.escapeHtml(elu.name)}" 
                                      data-structure="${this.escapeHtml(s.name)}" 
-                                     title="Commune de rattachement : non sélectionnable">
-                            <span class="blocked-label">🔒 Origine</span>
+                                     title="Commune d'élection (${this.escapeHtml(elu.commune)}) : non sélectionnable">
+                            <span class="blocked-label">🔒 Inéligible</span>
                         </td>`;
                     } else if (voeu) {
                         const rang = voeu.choix_rang;
                         html += `<td class="matrix-cell cell-selected" 
                                      data-elu="${this.escapeHtml(elu.name)}" 
                                      data-structure="${this.escapeHtml(s.name)}" 
-                                     title="Cliquez pour annuler ce vœu">
+                                     title="Cliquez pour annuler ce vœu (Choix ${rang})">
                             <span class="choice-badge c${rang}">Choix ${rang}</span>
                         </td>`;
                     } else {
