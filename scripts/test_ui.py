@@ -146,27 +146,59 @@ def run_tests():
             new_scroll = page.eval_on_selector(".table-scroll-container", "el => el.scrollLeft")
             test("Defilement horizontal declenche par clic sur pastille Sainte-Sigolene", new_scroll > 0)
 
-        # 12. Test du cadenas discret et de la modale de répartition optimale
-        btn_lock = page.locator("#btnOpenRepartitionModal")
-        test("Bouton cadenas discret présent en bas à droite", btn_lock.count() == 1 and btn_lock.is_visible())
+        # 12. Test du bouton Répartition en bas de page (NON flottant) et modale
+        btn_lock = page.locator("footer #btnOpenRepartitionModal")
+        test("Bouton cadenas présent dans le footer en bas de page", btn_lock.count() == 1)
 
-        # On simule l'enregistrement de quelques voeux pour tester l'algorithme de répartition
-        # Clic sur 3 cellules valides différentes
-        cells = page.locator(".matrix-cell:not(.cell-blocked)")
-        cell_count = cells.count()
-        if cell_count >= 5:
-            cells.nth(0).click()
-            time.sleep(0.2)
-            cells.nth(1).click()
-            time.sleep(0.2)
-            cells.nth(2).click()
-            time.sleep(0.2)
+        # Vérifier que le bouton n'est PAS en position fixed (pas flottant sur l'écran)
+        btn_position = page.eval_on_selector("#btnOpenRepartitionModal", "el => window.getComputedStyle(el).position")
+        test("Bouton non flottant (position !== 'fixed')", btn_position != "fixed")
+
+        # Scroll vers le bas pour le rendre visible
+        btn_lock.scroll_into_view_if_needed()
+        time.sleep(0.3)
+        test("Bouton visible après défilement jusqu'au pied de page", btn_lock.is_visible())
+
+        # Test d'affectation avec respect strict du MAX 3 ÉLUS PAR STRUCTURE
+        # On simule via JavaScript 6 élus qui choisissent la même structure en Choix 1 et une autre en Choix 2
+        page.evaluate("""() => {
+            if (window.app) {
+                // Inscrire 5 élus avec choix 1 = "MJC" et choix 2 = "ACIJA"
+                const votersData = [
+                    { elu_nom: "DUPLAIN Jocelyne", elu_commune: "CC", structure_nom: "MJC", structure_commune: "Monistrol-sur-Loire", choix_rang: 1 },
+                    { elu_nom: "DUPLAIN Jocelyne", elu_commune: "CC", structure_nom: "ACIJA", structure_commune: "Monistrol-sur-Loire", choix_rang: 2 },
+                    { elu_nom: "BEAU Virginie", elu_commune: "Bas-en-Basset", structure_nom: "MJC", structure_commune: "Monistrol-sur-Loire", choix_rang: 1 },
+                    { elu_nom: "BEAU Virginie", elu_commune: "Bas-en-Basset", structure_nom: "ACIJA", structure_commune: "Monistrol-sur-Loire", choix_rang: 2 },
+                    { elu_nom: "BERTHET Sarah", elu_commune: "Tiranges", structure_nom: "MJC", structure_commune: "Monistrol-sur-Loire", choix_rang: 1 },
+                    { elu_nom: "BERTHET Sarah", elu_commune: "Tiranges", structure_nom: "ACIJA", structure_commune: "Monistrol-sur-Loire", choix_rang: 2 },
+                    { elu_nom: "CAPDEVIELLE Florian", elu_commune: "Boisset", structure_nom: "MJC", structure_commune: "Monistrol-sur-Loire", choix_rang: 1 },
+                    { elu_nom: "CAPDEVIELLE Florian", elu_commune: "Boisset", structure_nom: "ACIJA", structure_commune: "Monistrol-sur-Loire", choix_rang: 2 },
+                    { elu_nom: "CHABANOL Jean-Paul", elu_commune: "Saint-Pal-de-Chalencon", structure_nom: "MJC", structure_commune: "Monistrol-sur-Loire", choix_rang: 1 },
+                    { elu_nom: "CHABANOL Jean-Paul", elu_commune: "Saint-Pal-de-Chalencon", structure_nom: "ACIJA", structure_commune: "Monistrol-sur-Loire", choix_rang: 2 }
+                ];
+                window.app.inscriptions = votersData;
+                window.app.updateStats();
+            }
+        }""")
+        time.sleep(0.5)
 
         # Ouvrir la modale
         btn_lock.click()
         time.sleep(0.5)
         modal = page.locator("#repartitionModal")
         test("Modale de répartition ouverte après clic sur cadenas", modal.is_visible())
+
+        # Vérifier la règle des 3 élus max
+        allocation_data = page.evaluate("() => window.app.computeOptimalAllocation()")
+        counts = [len(alloc["elus"]) for alloc in allocation_data["structureAllocations"].values()]
+        max_count = max(counts) if counts else 0
+        test("Plafond strict de 3 élus par structure respecté (max <= 3)", max_count <= 3)
+
+        # Vérifier que la MJC a exactement 3 élus (plafond) et ACIJA a les 2 autres
+        mjc_count = len(allocation_data["structureAllocations"]["MJC"]["elus"])
+        acija_count = len(allocation_data["structureAllocations"]["ACIJA"]["elus"])
+        test("MJC plafonnée à 3 élus maximum", mjc_count == 3)
+        test("Surplus correctement redirigé vers ACIJA (2 élus)", acija_count == 2)
 
         # Vérifier les KPIs
         kpi_bar = page.locator("#repartitionKpiBar")

@@ -297,6 +297,7 @@ class CommissionApp {
                 }
             };
         }
+        const MAX_PER_STRUCTURE = 3;
 
         const rankCost = (r) => {
             if (r === 1) return 0;
@@ -310,8 +311,8 @@ class CommissionApp {
             if (count === 0) return hadDemand ? 15 : 0;
             if (count === 1) return 5;
             if (count === 2 || count === 3) return 0; // Cible idéale : 2 à 3 élus
-            if (count === 4) return 50;
-            return 50 + (count - 4) * 100;
+            // STRICT MAXIMUM DE 3 : Pénalité rédhibitoire pour tout dépassement de 3
+            return 100000 * (count - 3);
         };
 
         const demandedStructures = new Set();
@@ -324,16 +325,78 @@ class CommissionApp {
         const structureCounts = {};
         this.structures.forEach(s => structureCounts[s.name] = 0);
 
+        // Phase 1 : Affectation initiale avec strict respect de la limite de 3 élus max
         sortedVoters.forEach(v => {
-            let bestChoice = v.choices.find(c => structureCounts[c.structure_nom] < 3);
+            let bestChoice = v.choices.find(c => (structureCounts[c.structure_nom] || 0) < MAX_PER_STRUCTURE);
             if (!bestChoice) {
                 bestChoice = v.choices.reduce((minC, curC) => 
-                    structureCounts[curC.structure_nom] < structureCounts[minC.structure_nom] ? curC : minC
+                    (structureCounts[curC.structure_nom] || 0) < (structureCounts[minC.structure_nom] || 0) ? curC : minC
                 , v.choices[0]);
             }
             assignment[v.elu_nom] = bestChoice.structure_nom;
-            structureCounts[bestChoice.structure_nom]++;
+            structureCounts[bestChoice.structure_nom] = (structureCounts[bestChoice.structure_nom] || 0) + 1;
         });
+
+        // Résolution proactive de tout dépassement (> 3) par réaffectation / chaînes de déplacement
+        const resolveOvercapacity = () => {
+            let changed = true;
+            let guard = 0;
+            while (changed && guard < 100) {
+                changed = false;
+                guard++;
+
+                const overfull = this.structures.filter(s => (structureCounts[s.name] || 0) > MAX_PER_STRUCTURE);
+                if (overfull.length === 0) break;
+
+                for (const s of overfull) {
+                    const elusInS = voters.filter(v => assignment[v.elu_nom] === s.name);
+                    let moved = false;
+
+                    // 1. Déplacement direct vers un choix alternatif avec < 3 élus
+                    for (const v of elusInS) {
+                        const altChoice = v.choices.find(c => c.structure_nom !== s.name && (structureCounts[c.structure_nom] || 0) < MAX_PER_STRUCTURE);
+                        if (altChoice) {
+                            assignment[v.elu_nom] = altChoice.structure_nom;
+                            structureCounts[s.name]--;
+                            structureCounts[altChoice.structure_nom] = (structureCounts[altChoice.structure_nom] || 0) + 1;
+                            moved = true;
+                            changed = true;
+                            break;
+                        }
+                    }
+                    if (moved) continue;
+
+                    // 2. Déplacement en chaîne (2 sauts)
+                    for (const v of elusInS) {
+                        for (const c of v.choices) {
+                            if (c.structure_nom === s.name) continue;
+                            const intermediateStruct = c.structure_nom;
+                            const elusInInter = voters.filter(v2 => assignment[v2.elu_nom] === intermediateStruct);
+                            for (const v2 of elusInInter) {
+                                const freeChoice = v2.choices.find(c2 => c2.structure_nom !== intermediateStruct && (structureCounts[c2.structure_nom] || 0) < MAX_PER_STRUCTURE);
+                                if (freeChoice) {
+                                    assignment[v2.elu_nom] = freeChoice.structure_nom;
+                                    structureCounts[intermediateStruct]--;
+                                    structureCounts[freeChoice.structure_nom] = (structureCounts[freeChoice.structure_nom] || 0) + 1;
+
+                                    assignment[v.elu_nom] = intermediateStruct;
+                                    structureCounts[s.name]--;
+                                    structureCounts[intermediateStruct] = (structureCounts[intermediateStruct] || 0) + 1;
+
+                                    moved = true;
+                                    changed = true;
+                                    break;
+                                }
+                            }
+                            if (moved) break;
+                        }
+                        if (moved) break;
+                    }
+                }
+            }
+        };
+
+        resolveOvercapacity();
 
         const calcTotalCost = () => {
             let cost = 0;
@@ -352,19 +415,21 @@ class CommissionApp {
         let improved = true;
         let iteration = 0;
 
-        while (improved && iteration < 250) {
+        while (improved && iteration < 300) {
             improved = false;
             iteration++;
 
-            // A. Déplacement individuel vers un autre choix
+            // A. Déplacement individuel vers un autre choix (STRICTEMENT plafonné à 3 élus max)
             for (const v of voters) {
                 const curStruct = assignment[v.elu_nom];
                 for (const ch of v.choices) {
                     if (ch.structure_nom === curStruct) continue;
+                    // Interdiction de déplacer un élu vers une structure ayant déjà 3 élus ou plus
+                    if ((structureCounts[ch.structure_nom] || 0) >= MAX_PER_STRUCTURE) continue;
 
                     assignment[v.elu_nom] = ch.structure_nom;
                     structureCounts[curStruct]--;
-                    structureCounts[ch.structure_nom]++;
+                    structureCounts[ch.structure_nom] = (structureCounts[ch.structure_nom] || 0) + 1;
 
                     const newCost = calcTotalCost();
                     if (newCost < currentCost) {
@@ -382,7 +447,7 @@ class CommissionApp {
 
             if (improved) continue;
 
-            // B. Échange (swap) entre 2 votants
+            // B. Échange (swap) entre 2 votants (conserve strictement les effectifs par structure)
             for (let i = 0; i < voters.length; i++) {
                 for (let j = i + 1; j < voters.length; j++) {
                     const v1 = voters[i];
@@ -412,6 +477,9 @@ class CommissionApp {
                 if (improved) break;
             }
         }
+
+        // Sécurité finale : s'assurer qu'aucun dépassement résiduel n'existe
+        resolveOvercapacity();
 
         const structureAllocations = {};
         this.structures.forEach(s => {
@@ -520,14 +588,18 @@ class CommissionApp {
                     cardClass = "status-single";
                     badgeClass = "rep-badge-single";
                     badgeLabel = "1 élu référent";
-                } else if (count >= 2 && count <= 3) {
+                } else if (count === 2) {
                     cardClass = "status-ideal";
                     badgeClass = "rep-badge-ideal";
-                    badgeLabel = `✅ Idéal (${count} élus)`;
+                    badgeLabel = `✅ 2 élus (Idéal)`;
+                } else if (count === 3) {
+                    cardClass = "status-ideal";
+                    badgeClass = "rep-badge-ideal";
+                    badgeLabel = `✅ 3 élus (Max)`;
                 } else if (count > 3) {
                     cardClass = "status-over";
                     badgeClass = "rep-badge-over";
-                    badgeLabel = `⚠️ ${count} élus`;
+                    badgeLabel = `⚠️ ${count} élus (>3)`;
                 }
 
                 const serviceTags = s.services.map(srv => {

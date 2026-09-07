@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Commission Enfance Jeunesse Solidarités - Inscription des Élus aux Structures</title>
-    <link rel="stylesheet" href="css/styles.css?v=2.1">
+    <link rel="stylesheet" href="css/styles.css?v=2.2">
 </head>
 <body>
 
@@ -127,7 +127,17 @@
 
     <!-- 5. PIED DE PAGE -->
     <footer>
-        <p>Commission Enfance Jeunesse Solidarités — Communauté de communes Marches du Velay Rochebaron • Hébergé sur GitHub Pages avec persistance Supabase</p>
+        <div class="footer-inner">
+            <p>Commission Enfance Jeunesse Solidarités — Communauté de communes Marches du Velay Rochebaron • Hébergé sur GitHub Pages avec persistance Supabase</p>
+            <!-- BOUTON DISCRET EN BAS DE PAGE (RÉPARTITION COORDINATEUR) -->
+            <button id="btnOpenRepartitionModal" class="btn-footer-lock" title="Espace coordinateur : Répartition prévisionnelle des élus référents par structure">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                    <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                    <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                </svg>
+                <span>Répartition 🔒</span>
+            </button>
+        </div>
     </footer>
 
     <!-- 6. MODAL SCRIPT SQL SUPABASE (NON-DESTRUCTIF) -->
@@ -181,22 +191,13 @@ END $$;</pre>
         </div>
     </div>
 
-    <!-- 7. BOUTON CADENAS FLOTTANT (RÉPARTITION COORDINATEUR) -->
-    <button id="btnOpenRepartitionModal" class="btn-floating-lock" title="Espace coordinateur : Répartition prévisionnelle des élus référents par structure">
-        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
-            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
-        </svg>
-        <span class="floating-lock-text">Répartition 🔒</span>
-    </button>
-
-    <!-- 8. MODAL RÉPARTITION ÉLUS PAR STRUCTURE -->
+    <!-- 7. MODAL RÉPARTITION ÉLUS PAR STRUCTURE -->
     <div id="repartitionModal" class="modal-backdrop" style="display: none;">
         <div class="modal-card modal-repartition-card">
             <div class="modal-header">
                 <div>
                     <h3>🔒 Répartition Prévisionnelle des Élus Référents</h3>
-                    <p class="modal-subtitle">Attribution optimisée (1 structure par élu votant, cible : 2 à 3 élus par structure)</p>
+                    <p class="modal-subtitle">Attribution optimisée (1 structure par élu votant, maximum 3 élus par structure)</p>
                 </div>
                 <button id="btnCloseRepartitionModal" class="btn btn-secondary" style="padding: 0.25rem 0.5rem;">✕</button>
             </div>
@@ -232,7 +233,7 @@ END $$;</pre>
             </div>
 
             <div class="modal-footer">
-                <span class="repartition-footer-note">💡 Algorithme équitable : priorité au choix 1, bascule sur choix 2 ou 3 si saturation, cible de 2 à 3 élus par structure.</span>
+                <span class="repartition-footer-note">💡 Algorithme équitable : priorité au choix 1, bascule sur choix 2 ou 3 si nécessaire, maximum strict de 3 élus par structure.</span>
                 <button id="btnDismissRepartitionModal" class="btn btn-primary">Fermer</button>
             </div>
         </div>
@@ -242,6 +243,6 @@ END $$;</pre>
     <div id="toastContainer" class="toast-container"></div>
 
     <!-- 8. SCRIPTS APPLICATIFS -->
-    <script type="module" src="js/app.js?v=2.1"></script>
+    <script type="module" src="js/app.js?v=2.2"></script>
 </body>
 </html>
