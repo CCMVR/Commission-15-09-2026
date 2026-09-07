@@ -1,5 +1,5 @@
-import { ELUS, STRUCTURES, COMMUNES_AVEC_STRUCTURES, isCommuneBlocked } from "./data.js";
-import { supabaseClient } from "./supabase.js";
+import { ELUS, STRUCTURES, COMMUNES_AVEC_STRUCTURES, isCommuneBlocked } from "./data.js?v=2.1";
+import { supabaseClient } from "./supabase.js?v=2.1";
 
 class CommissionApp {
     constructor() {
@@ -11,11 +11,16 @@ class CommissionApp {
         this.selectedCommuneFilter = "all";
         this.pollingInterval = null;
 
-        this.initElements();
-        this.initQuickNavAndFilter();
-        this.bindEvents();
-        this.renderTableHeaders();
-        this.loadData();
+        try {
+            this.initElements();
+            this.renderTableHeaders();
+            this.renderTableBody();
+            this.initQuickNavAndFilter();
+            this.bindEvents();
+            this.loadData();
+        } catch (err) {
+            console.error("Erreur initialisation CommissionApp:", err);
+        }
     }
 
     initElements() {
@@ -105,10 +110,12 @@ class CommissionApp {
 
     bindEvents() {
         // Recherche
-        this.searchInput.addEventListener("input", (e) => {
-            this.searchQuery = e.target.value.toLowerCase().trim();
-            this.renderTableBody();
-        });
+        if (this.searchInput) {
+            this.searchInput.addEventListener("input", (e) => {
+                this.searchQuery = e.target.value.toLowerCase().trim();
+                this.renderTableBody();
+            });
+        }
 
         // Filtre par commune
         if (this.filterCommune) {
@@ -133,19 +140,25 @@ class CommissionApp {
         }
 
         // Actualisation manuelle
-        this.btnRefresh.addEventListener("click", () => {
-            this.loadData(true);
-        });
+        if (this.btnRefresh) {
+            this.btnRefresh.addEventListener("click", () => {
+                this.loadData(true);
+            });
+        }
 
         // Export CSV
-        this.btnExportCsv.addEventListener("click", () => {
-            this.exportCsv();
-        });
+        if (this.btnExportCsv) {
+            this.btnExportCsv.addEventListener("click", () => {
+                this.exportCsv();
+            });
+        }
 
         // Impression
-        this.btnPrint.addEventListener("click", () => {
-            window.print();
-        });
+        if (this.btnPrint) {
+            this.btnPrint.addEventListener("click", () => {
+                window.print();
+            });
+        }
 
         // Modal SQL (si présent)
         if (this.btnOpenSqlModal) {
@@ -179,20 +192,7 @@ class CommissionApp {
     updateSyncBadge(status, details) {
         if (!this.syncBadge || !this.syncText) return;
         this.syncBadge.className = `sync-badge ${status}`;
-        if (status === "synced") {
-            this.syncText.textContent = "Connecté & Synchronisé";
-            this.syncBadge.title = details;
-        } else if (status === "syncing") {
-            this.syncText.textContent = details || "Synchronisation...";
-        } else if (status === "table_missing") {
-            this.syncText.textContent = "Table Supabase à créer (cliquez ici)";
-            this.syncBadge.title = "Cliquez pour afficher le script SQL à exécuter dans Supabase";
-        } else if (status === "offline") {
-            this.syncText.textContent = "Mode hors-ligne (local)";
-        } else {
-            this.syncText.textContent = "Mode local / Sauvegardé";
-            this.syncBadge.title = details;
-        }
+        this.syncText.textContent = "";
     }
 
     async loadData(isUserAction = false) {
