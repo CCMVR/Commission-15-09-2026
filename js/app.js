@@ -9,6 +9,8 @@ class CommissionApp {
         this.inscriptions = [];
         this.searchQuery = "";
         this.selectedCommuneFilter = "all";
+        this.repartitionViewMode = "structure";
+        this.currentAllocation = null;
         this.pollingInterval = null;
 
         try {
@@ -44,6 +46,19 @@ class CommissionApp {
         this.btnCopySql = document.getElementById("btnCopySql");
         this.sqlCodeBlock = document.getElementById("sqlCodeBlock");
         this.toastContainer = document.getElementById("toastContainer");
+
+        // Cadenas et Modal Répartition Coordinateur
+        this.btnOpenRepartitionModal = document.getElementById("btnOpenRepartitionModal");
+        this.repartitionModal = document.getElementById("repartitionModal");
+        this.btnCloseRepartitionModal = document.getElementById("btnCloseRepartitionModal");
+        this.btnDismissRepartitionModal = document.getElementById("btnDismissRepartitionModal");
+        this.repartitionKpiBar = document.getElementById("repartitionKpiBar");
+        this.repartitionContent = document.getElementById("repartitionContent");
+        this.btnViewByStructure = document.getElementById("btnViewByStructure");
+        this.btnViewByElu = document.getElementById("btnViewByElu");
+        this.btnRecalculateRepartition = document.getElementById("btnRecalculateRepartition");
+        this.btnExportRepartitionCsv = document.getElementById("btnExportRepartitionCsv");
+        this.btnPrintRepartition = document.getElementById("btnPrintRepartition");
 
         // Compteurs stats
         this.statElusInscrits = document.getElementById("statElusInscrits");
@@ -174,6 +189,50 @@ class CommissionApp {
             this.btnCopySql.addEventListener("click", () => this.copySqlCode());
         }
 
+        // Modal Répartition Coordinateur
+        if (this.btnOpenRepartitionModal) {
+            this.btnOpenRepartitionModal.addEventListener("click", () => this.openRepartitionModal());
+        }
+        if (this.btnCloseRepartitionModal) {
+            this.btnCloseRepartitionModal.addEventListener("click", () => this.closeRepartitionModal());
+        }
+        if (this.btnDismissRepartitionModal) {
+            this.btnDismissRepartitionModal.addEventListener("click", () => this.closeRepartitionModal());
+        }
+        if (this.btnViewByStructure) {
+            this.btnViewByStructure.addEventListener("click", () => {
+                this.repartitionViewMode = "structure";
+                this.btnViewByStructure.classList.add("active");
+                if (this.btnViewByElu) this.btnViewByElu.classList.remove("active");
+                this.renderRepartitionContent();
+            });
+        }
+        if (this.btnViewByElu) {
+            this.btnViewByElu.addEventListener("click", () => {
+                this.repartitionViewMode = "elu";
+                this.btnViewByElu.classList.add("active");
+                if (this.btnViewByStructure) this.btnViewByStructure.classList.remove("active");
+                this.renderRepartitionContent();
+            });
+        }
+        if (this.btnRecalculateRepartition) {
+            this.btnRecalculateRepartition.addEventListener("click", () => {
+                this.currentAllocation = this.computeOptimalAllocation();
+                this.renderRepartitionModal();
+                this.showToast("Attribution recalculée avec succès.", "success");
+            });
+        }
+        if (this.btnExportRepartitionCsv) {
+            this.btnExportRepartitionCsv.addEventListener("click", () => {
+                this.exportRepartitionCsv();
+            });
+        }
+        if (this.btnPrintRepartition) {
+            this.btnPrintRepartition.addEventListener("click", () => {
+                window.print();
+            });
+        }
+
         // Écoute des statuts de sync Supabase (silencieuse si badge absent)
         supabaseClient.onStatusChange((status, details) => {
             this.updateSyncBadge(status, details);
@@ -189,6 +248,402 @@ class CommissionApp {
         }
     }
 
+    openRepartitionModal() {
+        if (!this.repartitionModal) return;
+        this.currentAllocation = this.computeOptimalAllocation();
+        this.renderRepartitionModal();
+        this.repartitionModal.style.display = "flex";
+    }
+
+    closeRepartitionModal() {
+        if (!this.repartitionModal) return;
+        this.repartitionModal.style.display = "none";
+    }
+
+    computeOptimalAllocation() {
+        // Regrouper les inscriptions par élu
+        const elusVotants = {};
+        this.inscriptions.forEach(i => {
+            if (!elusVotants[i.elu_nom]) {
+                elusVotants[i.elu_nom] = {
+                    elu_nom: i.elu_nom,
+                    elu_commune: i.elu_commune,
+                    choices: []
+                };
+            }
+            elusVotants[i.elu_nom].choices.push({
+                structure_nom: i.structure_nom,
+                structure_commune: i.structure_commune,
+                rang: i.choix_rang
+            });
+        });
+
+        const voters = Object.values(elusVotants);
+        voters.forEach(v => v.choices.sort((a, b) => a.rang - b.rang));
+
+        if (voters.length === 0) {
+            return {
+                voters: [],
+                assignment: {},
+                structureAllocations: {},
+                stats: {
+                    totalVoters: 0,
+                    rank1Count: 0,
+                    rank2Count: 0,
+                    rank3PlusCount: 0,
+                    rank1Percent: 0,
+                    rank2Percent: 0,
+                    balancedStructures: 0
+                }
+            };
+        }
+
+        const rankCost = (r) => {
+            if (r === 1) return 0;
+            if (r === 2) return 15;
+            if (r === 3) return 35;
+            if (r === 4) return 65;
+            return 105;
+        };
+
+        const loadPenalty = (count, hadDemand) => {
+            if (count === 0) return hadDemand ? 15 : 0;
+            if (count === 1) return 5;
+            if (count === 2 || count === 3) return 0; // Cible idéale : 2 à 3 élus
+            if (count === 4) return 50;
+            return 50 + (count - 4) * 100;
+        };
+
+        const demandedStructures = new Set();
+        voters.forEach(v => v.choices.forEach(c => demandedStructures.add(c.structure_nom)));
+
+        // Tri des votants : ceux qui ont le moins de choix d'abord pour préserver leurs options
+        const sortedVoters = [...voters].sort((a, b) => a.choices.length - b.choices.length);
+        
+        const assignment = {};
+        const structureCounts = {};
+        this.structures.forEach(s => structureCounts[s.name] = 0);
+
+        sortedVoters.forEach(v => {
+            let bestChoice = v.choices.find(c => structureCounts[c.structure_nom] < 3);
+            if (!bestChoice) {
+                bestChoice = v.choices.reduce((minC, curC) => 
+                    structureCounts[curC.structure_nom] < structureCounts[minC.structure_nom] ? curC : minC
+                , v.choices[0]);
+            }
+            assignment[v.elu_nom] = bestChoice.structure_nom;
+            structureCounts[bestChoice.structure_nom]++;
+        });
+
+        const calcTotalCost = () => {
+            let cost = 0;
+            voters.forEach(v => {
+                const assignedStruct = assignment[v.elu_nom];
+                const ch = v.choices.find(c => c.structure_nom === assignedStruct);
+                cost += rankCost(ch ? ch.rang : 5);
+            });
+            this.structures.forEach(s => {
+                cost += loadPenalty(structureCounts[s.name] || 0, demandedStructures.has(s.name));
+            });
+            return cost;
+        };
+
+        let currentCost = calcTotalCost();
+        let improved = true;
+        let iteration = 0;
+
+        while (improved && iteration < 250) {
+            improved = false;
+            iteration++;
+
+            // A. Déplacement individuel vers un autre choix
+            for (const v of voters) {
+                const curStruct = assignment[v.elu_nom];
+                for (const ch of v.choices) {
+                    if (ch.structure_nom === curStruct) continue;
+
+                    assignment[v.elu_nom] = ch.structure_nom;
+                    structureCounts[curStruct]--;
+                    structureCounts[ch.structure_nom]++;
+
+                    const newCost = calcTotalCost();
+                    if (newCost < currentCost) {
+                        currentCost = newCost;
+                        improved = true;
+                        break;
+                    } else {
+                        assignment[v.elu_nom] = curStruct;
+                        structureCounts[curStruct]++;
+                        structureCounts[ch.structure_nom]--;
+                    }
+                }
+                if (improved) break;
+            }
+
+            if (improved) continue;
+
+            // B. Échange (swap) entre 2 votants
+            for (let i = 0; i < voters.length; i++) {
+                for (let j = i + 1; j < voters.length; j++) {
+                    const v1 = voters[i];
+                    const v2 = voters[j];
+                    const s1 = assignment[v1.elu_nom];
+                    const s2 = assignment[v2.elu_nom];
+                    if (s1 === s2) continue;
+
+                    const v1CanTakeS2 = v1.choices.some(c => c.structure_nom === s2);
+                    const v2CanTakeS1 = v2.choices.some(c => c.structure_nom === s1);
+
+                    if (v1CanTakeS2 && v2CanTakeS1) {
+                        assignment[v1.elu_nom] = s2;
+                        assignment[v2.elu_nom] = s1;
+
+                        const newCost = calcTotalCost();
+                        if (newCost < currentCost) {
+                            currentCost = newCost;
+                            improved = true;
+                            break;
+                        } else {
+                            assignment[v1.elu_nom] = s1;
+                            assignment[v2.elu_nom] = s2;
+                        }
+                    }
+                }
+                if (improved) break;
+            }
+        }
+
+        const structureAllocations = {};
+        this.structures.forEach(s => {
+            structureAllocations[s.name] = {
+                structure: s,
+                elus: []
+            };
+        });
+
+        let rank1Count = 0;
+        let rank2Count = 0;
+        let rank3PlusCount = 0;
+
+        voters.forEach(v => {
+            const assignedStruct = assignment[v.elu_nom];
+            const ch = v.choices.find(c => c.structure_nom === assignedStruct);
+            const rang = ch ? ch.rang : 1;
+            if (rang === 1) rank1Count++;
+            else if (rang === 2) rank2Count++;
+            else rank3PlusCount++;
+
+            if (structureAllocations[assignedStruct]) {
+                structureAllocations[assignedStruct].elus.push({
+                    elu_nom: v.elu_nom,
+                    elu_commune: v.elu_commune,
+                    rang: rang,
+                    allChoices: v.choices
+                });
+            }
+        });
+
+        let balancedCount = 0;
+        this.structures.forEach(s => {
+            const count = structureAllocations[s.name].elus.length;
+            if (count >= 2 && count <= 3) balancedCount++;
+        });
+
+        return {
+            voters,
+            assignment,
+            structureAllocations,
+            stats: {
+                totalVoters: voters.length,
+                rank1Count,
+                rank2Count,
+                rank3PlusCount,
+                rank1Percent: voters.length > 0 ? Math.round((rank1Count / voters.length) * 100) : 0,
+                rank2Percent: voters.length > 0 ? Math.round((rank2Count / voters.length) * 100) : 0,
+                balancedStructures: balancedCount
+            }
+        };
+    }
+
+    renderRepartitionModal() {
+        if (!this.repartitionKpiBar || !this.repartitionContent) return;
+        const res = this.currentAllocation || this.computeOptimalAllocation();
+        this.currentAllocation = res;
+
+        // KPI
+        this.repartitionKpiBar.innerHTML = `
+            <div class="repartition-kpi-item">
+                <span class="repartition-kpi-label">Élus votants affectés</span>
+                <span class="repartition-kpi-value">${res.stats.totalVoters} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">/ ${this.elus.length}</span></span>
+            </div>
+            <div class="repartition-kpi-item">
+                <span class="repartition-kpi-label">Affectés sur Choix 1</span>
+                <span class="repartition-kpi-value" style="color:#d97706;">${res.stats.rank1Count} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">(${res.stats.rank1Percent}%)</span></span>
+            </div>
+            <div class="repartition-kpi-item">
+                <span class="repartition-kpi-label">Affectés sur Choix 2</span>
+                <span class="repartition-kpi-value" style="color:#2563eb;">${res.stats.rank2Count} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">(${res.stats.rank2Percent}%)</span></span>
+            </div>
+            <div class="repartition-kpi-item">
+                <span class="repartition-kpi-label">Structures à 2-3 élus (Idéal)</span>
+                <span class="repartition-kpi-value" style="color:#059669;">${res.stats.balancedStructures} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">/ 20</span></span>
+            </div>
+        `;
+
+        this.renderRepartitionContent();
+    }
+
+    renderRepartitionContent() {
+        if (!this.repartitionContent) return;
+        const res = this.currentAllocation;
+        if (!res || res.voters.length === 0) {
+            this.repartitionContent.innerHTML = `
+                <div style="text-align:center; padding:3rem 1rem; color:#64748b;">
+                    <div style="font-size:2.5rem; margin-bottom:0.75rem;">🗳️</div>
+                    <h4 style="color:#1e293b; margin-bottom:0.35rem;">Aucun vœu enregistré pour le moment</h4>
+                    <p style="font-size:0.875rem;">Dès que les élus exprimeront des choix dans la grille, l'attribution prévisionnelle apparaîtra automatiquement ici.</p>
+                </div>`;
+            return;
+        }
+
+        if (this.repartitionViewMode === "structure") {
+            let html = `<div class="repartition-grid">`;
+            this.structures.forEach(s => {
+                const alloc = res.structureAllocations[s.name];
+                const count = alloc ? alloc.elus.length : 0;
+
+                let cardClass = "status-empty";
+                let badgeClass = "rep-badge-empty";
+                let badgeLabel = "0 élu positionné";
+
+                if (count === 1) {
+                    cardClass = "status-single";
+                    badgeClass = "rep-badge-single";
+                    badgeLabel = "1 élu référent";
+                } else if (count >= 2 && count <= 3) {
+                    cardClass = "status-ideal";
+                    badgeClass = "rep-badge-ideal";
+                    badgeLabel = `✅ Idéal (${count} élus)`;
+                } else if (count > 3) {
+                    cardClass = "status-over";
+                    badgeClass = "rep-badge-over";
+                    badgeLabel = `⚠️ ${count} élus`;
+                }
+
+                const serviceTags = s.services.map(srv => {
+                    const cls = `tag-${srv.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "")}`;
+                    const tooltip = srv === "DSP" ? 'title="Délégation de Service Public (seule DSP de la liste)"' : '';
+                    return `<span class="service-tag ${cls}" ${tooltip}>${srv}</span>`;
+                }).join("");
+
+                html += `
+                    <div class="repartition-card ${cardClass}">
+                        <div class="rep-card-header">
+                            <div>
+                                <div class="rep-card-title">${this.escapeHtml(s.name)}</div>
+                                <div class="rep-card-commune">📍 ${this.escapeHtml(s.commune)}</div>
+                            </div>
+                            <span class="rep-status-badge ${badgeClass}">${badgeLabel}</span>
+                        </div>
+                        <div class="rep-card-services">${serviceTags}</div>
+                        <div class="rep-elus-list">`;
+
+                if (count === 0) {
+                    html += `<div class="rep-empty-msg">Aucun élu affecté sur cette structure</div>`;
+                } else {
+                    alloc.elus.forEach(e => {
+                        html += `
+                            <div class="rep-elu-item">
+                                <span class="rep-elu-name">
+                                    ${this.escapeHtml(e.elu_nom)}
+                                    <span class="rep-elu-commune">(${this.escapeHtml(e.elu_commune)})</span>
+                                </span>
+                                <span class="choice-badge c${e.rang}">Choix ${e.rang}</span>
+                            </div>`;
+                    });
+                }
+
+                html += `</div></div>`;
+            });
+            html += `</div>`;
+            this.repartitionContent.innerHTML = html;
+
+        } else {
+            // Vue par élu
+            let html = `
+                <table class="rep-elu-table">
+                    <thead>
+                        <tr>
+                            <th>Élu(e) membre</th>
+                            <th>Commune d'élection</th>
+                            <th>Structure affectée</th>
+                            <th>Commune structure</th>
+                            <th>Vœu satisfait</th>
+                            <th>Autres vœux exprimés</th>
+                        </tr>
+                    </thead>
+                    <tbody>`;
+
+            const sortedVoters = [...res.voters].sort((a, b) => a.elu_nom.localeCompare(b.elu_nom));
+            sortedVoters.forEach(v => {
+                const assignedStructName = res.assignment[v.elu_nom];
+                const assignedStruct = this.structures.find(s => s.name === assignedStructName);
+                const ch = v.choices.find(c => c.structure_nom === assignedStructName);
+                const rang = ch ? ch.rang : 1;
+                const otherChoices = v.choices
+                    .filter(c => c.structure_nom !== assignedStructName)
+                    .map(c => `${c.structure_nom} (C${c.rang})`)
+                    .join(", ");
+
+                html += `
+                    <tr>
+                        <td><strong>${this.escapeHtml(v.elu_nom)}</strong></td>
+                        <td>${this.escapeHtml(v.elu_commune)}</td>
+                        <td><strong>${this.escapeHtml(assignedStructName)}</strong></td>
+                        <td>${this.escapeHtml(assignedStruct ? assignedStruct.commune : "")}</td>
+                        <td><span class="choice-badge c${rang}">Choix ${rang}</span></td>
+                        <td class="rep-other-choices">${otherChoices ? this.escapeHtml(otherChoices) : '<span style="opacity:0.5;">Aucun</span>'}</td>
+                    </tr>`;
+            });
+
+            html += `</tbody></table>`;
+            this.repartitionContent.innerHTML = html;
+        }
+    }
+
+    exportRepartitionCsv() {
+        const res = this.currentAllocation || this.computeOptimalAllocation();
+        if (!res || res.voters.length === 0) {
+            this.showToast("Aucun vœu à exporter pour le moment.", "warn");
+            return;
+        }
+
+        let csvContent = "\uFEFF"; // BOM UTF-8
+        csvContent += '"Structure";"Commune Structure";"Élu référent affecté";"Commune de l\'élu";"Vœu satisfait";"Date extraction"\r\n';
+
+        this.structures.forEach(s => {
+            const alloc = res.structureAllocations[s.name];
+            if (!alloc || alloc.elus.length === 0) {
+                csvContent += `"${s.name}";"${s.commune}";"--- Aucun élu affecté ---";"";"";"${new Date().toLocaleString('fr-FR')}"\r\n`;
+            } else {
+                alloc.elus.forEach(e => {
+                    csvContent += `"${s.name}";"${s.commune}";"${e.elu_nom}";"${e.elu_commune}";"Choix ${e.rang}";"${new Date().toLocaleString('fr-FR')}"\r\n`;
+                });
+            }
+        });
+
+        const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `repartition_elus_structures_${new Date().toISOString().slice(0,10)}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url);
+        this.showToast("Export CSV de la répartition généré avec succès.", "success");
+    }
+
     updateSyncBadge(status, details) {
         if (!this.syncBadge || !this.syncText) return;
         this.syncBadge.className = `sync-badge ${status}`;
@@ -201,6 +656,10 @@ class CommissionApp {
             this.inscriptions = data || [];
             this.renderTableBody();
             this.updateStats();
+            if (this.repartitionModal && this.repartitionModal.style.display !== "none") {
+                this.currentAllocation = this.computeOptimalAllocation();
+                this.renderRepartitionModal();
+            }
             if (isUserAction) {
                 this.showToast("Données actualisées avec succès.", "success");
             }
@@ -217,6 +676,10 @@ class CommissionApp {
                         this.inscriptions = data;
                         this.renderTableBody();
                         this.updateStats();
+                        if (this.repartitionModal && this.repartitionModal.style.display !== "none") {
+                            this.currentAllocation = this.computeOptimalAllocation();
+                            this.renderRepartitionModal();
+                        }
                     }
                 }
             }, 15000);
@@ -445,6 +908,11 @@ class CommissionApp {
         this.statElusInscrits.textContent = `${uniqueElus.size} / ${this.elus.length}`;
         this.statTotalVoeux.textContent = this.inscriptions.length;
         this.statStructuresCouvertes.textContent = `${uniqueStructures.size} / ${this.structures.length}`;
+
+        if (this.repartitionModal && this.repartitionModal.style.display !== "none") {
+            this.currentAllocation = this.computeOptimalAllocation();
+            this.renderRepartitionModal();
+        }
     }
 
     exportCsv() {

@@ -1,4 +1,4 @@
-﻿import http.server
+import http.server
 import socketserver
 import threading
 import time
@@ -146,8 +146,65 @@ def run_tests():
             new_scroll = page.eval_on_selector(".table-scroll-container", "el => el.scrollLeft")
             test("Defilement horizontal declenche par clic sur pastille Sainte-Sigolene", new_scroll > 0)
 
-        # Capture d ecran
+        # 12. Test du cadenas discret et de la modale de répartition optimale
+        btn_lock = page.locator("#btnOpenRepartitionModal")
+        test("Bouton cadenas discret présent en bas à droite", btn_lock.count() == 1 and btn_lock.is_visible())
+
+        # On simule l'enregistrement de quelques voeux pour tester l'algorithme de répartition
+        # Clic sur 3 cellules valides différentes
+        cells = page.locator(".matrix-cell:not(.cell-blocked)")
+        cell_count = cells.count()
+        if cell_count >= 5:
+            cells.nth(0).click()
+            time.sleep(0.2)
+            cells.nth(1).click()
+            time.sleep(0.2)
+            cells.nth(2).click()
+            time.sleep(0.2)
+
+        # Ouvrir la modale
+        btn_lock.click()
+        time.sleep(0.5)
+        modal = page.locator("#repartitionModal")
+        test("Modale de répartition ouverte après clic sur cadenas", modal.is_visible())
+
+        # Vérifier les KPIs
+        kpi_bar = page.locator("#repartitionKpiBar")
+        test("Barre de KPI affichée dans la modale", kpi_bar.is_visible())
+        kpi_items = page.locator("#repartitionKpiBar .repartition-kpi-item")
+        test("4 indicateurs KPI présents", kpi_items.count() == 4)
+
+        # Vérifier que les cartes structures sont générées
+        struct_cards = page.locator(".repartition-card")
+        test("Cartes de structures générées dans la modale (20 structures)", struct_cards.count() == 20)
+
+        # Capture d ecran de la modale ouverte en vue structure
         os.makedirs("test-screenshots", exist_ok=True)
+        modal_screenshot_path = os.path.join(DIRECTORY, "test-screenshots", "repartition_modal.png")
+        page.screenshot(path=modal_screenshot_path, full_page=False)
+        print(f"Capture d ecran modale sauvegardee : {modal_screenshot_path}")
+
+        # Vérifier le basculement vers la vue par Élu
+        btn_view_elu = page.locator("#btnViewByElu")
+        test("Bouton bascule Vue par Élu présent", btn_view_elu.count() == 1)
+        btn_view_elu.click()
+        time.sleep(0.4)
+        elu_rows = page.locator(".rep-elu-table tbody tr")
+        test("Basculement vers la vue par élu réussi", elu_rows.count() > 0)
+
+        # Revenir en vue structure
+        btn_view_struct = page.locator("#btnViewByStructure")
+        btn_view_struct.click()
+        time.sleep(0.4)
+        test("Retour en vue par structure réussi", page.locator(".repartition-card").count() == 20)
+
+        # Fermer la modale avec le bouton Fermer du footer
+        btn_dismiss_modal = page.locator("#btnDismissRepartitionModal")
+        btn_dismiss_modal.click()
+        time.sleep(0.3)
+        test("Fermeture de la modale réussie", not modal.is_visible())
+
+        # Capture d ecran generale
         screenshot_path = os.path.join(DIRECTORY, "test-screenshots", "interface_overview.png")
         page.screenshot(path=screenshot_path, full_page=False)
         print(f"Capture d ecran sauvegardee : {screenshot_path}")
