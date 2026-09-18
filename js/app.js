@@ -1,6 +1,9 @@
 import { ELUS, STRUCTURES, COMMUNES_AVEC_STRUCTURES, isCommuneBlocked } from "./data.js?v=2.1";
 import { supabaseClient } from "./supabase.js?v=2.1";
 
+const MAX_CHOICES_PER_ELU = 2;
+const MAX_CANDIDATES_PER_STRUCTURE = 2;
+
 class CommissionApp {
     constructor() {
         this.elus = ELUS;
@@ -12,6 +15,7 @@ class CommissionApp {
         this.repartitionViewMode = "structure";
         this.currentAllocation = null;
         this.pollingInterval = null;
+        this.pendingReleaseAction = null;
 
         try {
             this.initElements();
@@ -46,6 +50,13 @@ class CommissionApp {
         this.btnCopySql = document.getElementById("btnCopySql");
         this.sqlCodeBlock = document.getElementById("sqlCodeBlock");
         this.toastContainer = document.getElementById("toastContainer");
+
+        // Modal Confirmation Libération (Option A)
+        this.confirmReleaseModal = document.getElementById("confirmReleaseModal");
+        this.confirmReleaseMessage = document.getElementById("confirmReleaseMessage");
+        this.btnCloseConfirmReleaseModal = document.getElementById("btnCloseConfirmReleaseModal");
+        this.btnCancelRelease = document.getElementById("btnCancelRelease");
+        this.btnConfirmRelease = document.getElementById("btnConfirmRelease");
 
         // Cadenas et Modal Répartition Coordinateur
         this.btnOpenRepartitionModal = document.getElementById("btnOpenRepartitionModal");
@@ -246,6 +257,39 @@ class CommissionApp {
                 }
             });
         }
+
+        // Modal Confirmation Libération (Option A)
+        if (this.btnCloseConfirmReleaseModal) {
+            this.btnCloseConfirmReleaseModal.addEventListener("click", () => this.closeConfirmReleaseModal());
+        }
+        if (this.btnCancelRelease) {
+            this.btnCancelRelease.addEventListener("click", () => this.closeConfirmReleaseModal());
+        }
+        if (this.btnConfirmRelease) {
+            this.btnConfirmRelease.addEventListener("click", async () => {
+                if (this.pendingReleaseAction) {
+                    const action = this.pendingReleaseAction;
+                    this.pendingReleaseAction = null;
+                    this.closeConfirmReleaseModal();
+                    await action();
+                }
+            });
+        }
+    }
+
+    openConfirmReleaseModal(message, onConfirm) {
+        if (!this.confirmReleaseModal) return;
+        if (this.confirmReleaseMessage) {
+            this.confirmReleaseMessage.textContent = message;
+        }
+        this.pendingReleaseAction = onConfirm;
+        this.confirmReleaseModal.style.display = "flex";
+    }
+
+    closeConfirmReleaseModal() {
+        if (!this.confirmReleaseModal) return;
+        this.confirmReleaseModal.style.display = "none";
+        this.pendingReleaseAction = null;
     }
 
     openRepartitionModal() {
@@ -726,6 +770,7 @@ class CommissionApp {
         try {
             const data = await supabaseClient.fetchInscriptions();
             this.inscriptions = data || [];
+            this.renderTableHeaders();
             this.renderTableBody();
             this.updateStats();
             if (this.repartitionModal && this.repartitionModal.style.display !== "none") {
@@ -746,6 +791,7 @@ class CommissionApp {
                     const data = await supabaseClient.fetchInscriptions();
                     if (data && JSON.stringify(data) !== JSON.stringify(this.inscriptions)) {
                         this.inscriptions = data;
+                        this.renderTableHeaders();
                         this.renderTableBody();
                         this.updateStats();
                         if (this.repartitionModal && this.repartitionModal.style.display !== "none") {
@@ -782,15 +828,22 @@ class CommissionApp {
         displayedCommunes.forEach(c => {
             const structs = this.structuresParCommune[c];
             structs.forEach(s => {
+                const candCount = this.inscriptions.filter(i => i.structure_nom === s.name).length;
+                const isFull = candCount >= MAX_CANDIDATES_PER_STRUCTURE;
                 const serviceTags = s.services.map(srv => {
                     const cls = `tag-${srv.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^a-z]/g, "")}`;
                     const tooltip = srv === "DSP" ? 'title="Délégation de Service Public (seule DSP de la liste)"' : '';
                     return `<span class="service-tag ${cls}" ${tooltip}>${srv}</span>`;
                 }).join("");
 
-                tr2 += `<th class="th-structure" data-structure-id="${s.id}">
+                const fullBadge = isFull
+                    ? `<div class="structure-full-badge" title="Structure complète : quota de 2 élus référents atteint">🔒 Complet (2/2)</div>`
+                    : '';
+
+                tr2 += `<th class="th-structure ${isFull ? 'structure-full' : ''}" data-structure-id="${s.id}">
                     <span class="structure-name">${this.escapeHtml(s.name)}</span>
                     <div class="structure-badge-group">${serviceTags}</div>
+                    ${fullBadge}
                 </th>`;
             });
         });
@@ -841,6 +894,8 @@ class CommissionApp {
                 structs.forEach(s => {
                     const blocked = isCommuneBlocked(elu.commune, s.commune);
                     const voeu = eluVoeux.find(v => v.structure_nom === s.name);
+                    const candCount = this.inscriptions.filter(i => i.structure_nom === s.name).length;
+                    const isFull = candCount >= MAX_CANDIDATES_PER_STRUCTURE;
 
                     if (blocked) {
                         html += `<td class="matrix-cell cell-blocked" 
@@ -854,8 +909,15 @@ class CommissionApp {
                         html += `<td class="matrix-cell cell-selected" 
                                      data-elu="${this.escapeHtml(elu.name)}" 
                                      data-structure="${this.escapeHtml(s.name)}" 
-                                     title="Cliquez pour annuler ce vœu (Choix ${rang})">
+                                     title="Cliquez pour libérer votre place (Choix ${rang})">
                             <span class="choice-badge c${rang}">Choix ${rang}</span>
+                        </td>`;
+                    } else if (isFull) {
+                        html += `<td class="matrix-cell cell-full" 
+                                     data-elu="${this.escapeHtml(elu.name)}" 
+                                     data-structure="${this.escapeHtml(s.name)}" 
+                                     title="Structure complète : quota de 2 élus référents déjà atteint">
+                            <span class="full-label">🔒 Complet (2/2)</span>
                         </td>`;
                     } else {
                         html += `<td class="matrix-cell" 
@@ -902,41 +964,59 @@ class CommissionApp {
 
         const existingVoeu = eluVoeux.find(v => v.structure_nom === structure.name);
 
-        // 2. Désélection d'un choix existant avec réindexation
+        // 2. Désélection d'un choix existant avec confirmation (Option A)
         if (existingVoeu) {
             const rangSupprime = existingVoeu.choix_rang;
 
-            // Retrait local immédiat (optimiste)
-            this.inscriptions = this.inscriptions.filter(i => !(i.elu_nom === elu.name && i.structure_nom === structure.name));
+            const executeRelease = async () => {
+                // Retrait local immédiat (optimiste)
+                this.inscriptions = this.inscriptions.filter(i => !(i.elu_nom === elu.name && i.structure_nom === structure.name));
 
-            // Réindexation des choix supérieurs
-            const voeuxRestants = this.inscriptions.filter(i => i.elu_nom === elu.name);
-            const updatesToPersist = [];
+                // Réindexation des choix supérieurs
+                const voeuxRestants = this.inscriptions.filter(i => i.elu_nom === elu.name);
+                const updatesToPersist = [];
 
-            voeuxRestants.forEach(v => {
-                if (v.choix_rang > rangSupprime) {
-                    v.choix_rang -= 1;
-                    updatesToPersist.push(v);
+                voeuxRestants.forEach(v => {
+                    if (v.choix_rang > rangSupprime) {
+                        v.choix_rang -= 1;
+                        updatesToPersist.push(v);
+                    }
+                });
+
+                this.renderTableHeaders();
+                this.renderTableBody();
+                this.updateStats();
+
+                this.showToast(`Place libérée sur ${structure.name} pour ${elu.name}. Vos choix restants ont été réordonnés.`, "success");
+
+                // Persistance Supabase
+                await supabaseClient.deleteInscription(elu.name, structure.name);
+                for (const v of updatesToPersist) {
+                    await supabaseClient.updateChoixRang(v.id, v.choix_rang);
                 }
-            });
+            };
 
-            this.renderTableBody();
-            this.updateStats();
-
-            this.showToast(`Vœu sur ${structure.name} annulé. Vos choix restants ont été réordonnés.`, "success");
-
-            // Persistance Supabase
-            await supabaseClient.deleteInscription(elu.name, structure.name);
-            for (const v of updatesToPersist) {
-                await supabaseClient.updateChoixRang(v.id, v.choix_rang);
-            }
+            this.openConfirmReleaseModal(
+                `Attention : ${elu.name} est actuellement positionné(e) sur la structure "${structure.name}" (Choix ${existingVoeu.choix_rang}). Souhaitez-vous libérer cette place ?`,
+                executeRelease
+            );
             return;
         }
 
-        // 3. Ajout d'un nouveau choix (Plafond de 5 vœux max)
-        if (eluVoeux.length >= 5) {
+        // 3. Vérification de saturation de la structure (Quota max de 2 candidats)
+        const candCount = this.inscriptions.filter(i => i.structure_nom === structure.name).length;
+        if (candCount >= MAX_CANDIDATES_PER_STRUCTURE) {
             this.showToast(
-                `Plafond atteint : ${elu.name} a déjà formulé 5 vœux (maximum autorisé). Cliquez sur un vœu existant pour l'annuler avant d'en choisir un autre.`,
+                `Cette structure est complète (quota maximal de ${MAX_CANDIDATES_PER_STRUCTURE} personnes atteint). Plus aucune inscription n'est possible dessus.`,
+                "warn"
+            );
+            return;
+        }
+
+        // 4. Ajout d'un nouveau choix (Plafond de 2 vœux max par élu)
+        if (eluVoeux.length >= MAX_CHOICES_PER_ELU) {
+            this.showToast(
+                `Plafond atteint : ${elu.name} a déjà formulé ses ${MAX_CHOICES_PER_ELU} choix (maximum autorisé). Cliquez sur un choix existant pour libérer votre place avant d'en choisir un autre.`,
                 "warn"
             );
             return;
@@ -955,6 +1035,7 @@ class CommissionApp {
 
         // Ajout local optimiste
         this.inscriptions.push(newRecord);
+        this.renderTableHeaders();
         this.renderTableBody();
         this.updateStats();
 

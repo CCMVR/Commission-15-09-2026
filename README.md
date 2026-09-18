@@ -17,9 +17,10 @@ Application web interactive destinée aux membres élus de la commission Enfance
    - Les élus issus de communes sans structures (ex. *Boisset*, *Malvalette*, *Tiranges*, *Valprivas*, *Solignac-sous-Roche*, *Saint-André-de-Chalencon*) peuvent postuler librement sur toutes les structures.
    - Les variantes d'écriture des communes (*Bas en Basset* vs *Bas-en-Basset*, *Monistrol sur Loire* vs *Monistrol-sur-Loire*) sont unifiées sans doublon.
 
-3. **Système de vœux ordonnés (Choix 1 à 5 max)** :
-   - Au clic sur une case autorisée, le vœu est attribué successivement : *Choix 1*, *Choix 2*, etc. (jusqu'à 5 choix maximum par élu).
-   - Un clic sur un choix existant l'annule et **réindexe automatiquement les choix suivants** (par exemple, supprimer le Choix 2 fait passer le Choix 3 en Choix 2).
+3. **Système de vœux ordonnés (2 choix max) & Verrouillage à 2 candidats** :
+   - Au clic sur une case autorisée, le vœu est attribué successivement : *Choix 1*, puis *Choix 2* (2 choix maximum par élu).
+   - Dès qu'une structure enregistre **2 personnes** inscrites, elle est considérée comme **complète** : son en-tête affiche `🔒 Complet (2/2)` et toutes ses cellules libres se grisent avec interdiction de clic pour les autres élus.
+   - **Sécurité anti-erreur (Option A)** : un clic sur une structure où l'élu est déjà positionné ouvre un dialogue de confirmation pour libérer la place, ce qui réouvre immédiatement le quota pour tous les autres membres.
 
 4. **Guide didactique « Marche à suivre »** :
    - Encart pédagogique placé en en-tête sous le logo pour expliciter les 4 étapes à suivre par les élus en séance.

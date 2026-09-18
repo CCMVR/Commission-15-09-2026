@@ -7,7 +7,7 @@
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
     <title>Commission Enfance Jeunesse Solidarités - Inscription des Élus aux Structures</title>
-    <link rel="stylesheet" href="css/styles.css?v=2.2">
+    <link rel="stylesheet" href="css/styles.css?v=2.3">
 </head>
 <body>
 
@@ -52,13 +52,13 @@
                 <div class="instruction-step">
                     <div class="step-number">3</div>
                     <div class="step-text">
-                        <strong>Attribuez vos vœux</strong> : cliquez sur la case d'une structure pour lui attribuer votre <em>Choix 1</em>, puis <em>Choix 2</em>, etc. (jusqu'à 5 choix max).
+                        <strong>Attribuez vos vœux</strong> : cliquez sur la case d'une structure pour lui attribuer votre <em>Choix 1</em>, puis <em>Choix 2</em> (<strong>2 choix max</strong>). Dès que 2 élus sont inscrits sur une structure, elle devient <strong>complète</strong> et se verrouille.
                     </div>
                 </div>
                 <div class="instruction-step">
                     <div class="step-number">4</div>
                     <div class="step-text">
-                        <strong>Ajustez ou annulez</strong> : un nouveau clic sur une case sélectionnée l'annule et réorganise automatiquement l'ordre de vos rangs.
+                        <strong>Sécurité & désinscription</strong> : un clic sur une case où vous êtes positionné(e) ouvre un dialogue pour confirmer si vous souhaitez libérer votre place.
                     </div>
                 </div>
             </div>
@@ -239,10 +239,31 @@ END $$;</pre>
         </div>
     </div>
 
+    <!-- 8. MODAL DE CONFIRMATION DE LIBÉRATION DE PLACE (OPTION A) -->
+    <div id="confirmReleaseModal" class="modal-backdrop" style="display: none;">
+        <div class="modal-card modal-confirm-card">
+            <div class="modal-header">
+                <div class="confirm-header-title">
+                    <span class="confirm-warning-icon">⚠️</span>
+                    <h3>Confirmer la libération de votre place</h3>
+                </div>
+                <button id="btnCloseConfirmReleaseModal" class="btn btn-secondary" style="padding: 0.25rem 0.5rem;">✕</button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmReleaseMessage" style="font-size: 0.95rem; font-weight: 600; color: #1e293b; margin-bottom: 0.75rem;">Êtes-vous sûr(e) de vouloir libérer votre place dans cette structure ?</p>
+                <p class="confirm-release-note">Cette action libérera immédiatement la place dans cette structure pour les autres membres de la commission.</p>
+            </div>
+            <div class="modal-footer">
+                <button id="btnCancelRelease" class="btn btn-secondary">Annuler (Conserver ma place)</button>
+                <button id="btnConfirmRelease" class="btn btn-danger">Confirmer et libérer la place</button>
+            </div>
+        </div>
+    </div>
+
     <!-- 9. TOAST DE NOTIFICATION -->
     <div id="toastContainer" class="toast-container"></div>
 
     <!-- 8. SCRIPTS APPLICATIFS -->
-    <script type="module" src="js/app.js?v=2.2"></script>
+    <script type="module" src="js/app.js?v=2.3"></script>
 </body>
 </html>

@@ -111,9 +111,10 @@ def run_tests():
         total_structures = page.locator("#matrixHead tr:nth-child(2) th").count()
         test("Restauration complete (20 structures affichees)", total_structures == 20)
 
-        # 9. Test interactif d attribution d un voeu (Choix 1)
-        clickable_cell = page.locator(".matrix-cell:not(.cell-blocked)").first
-        elu_target = clickable_cell.get_attribute("data-elu")
+        # 9. Test interactif d attribution d un voeu (Choix 1) sur un élu vierge de vœux
+        fresh_row = page.locator("tbody tr:not(:has(.choice-badge))").first
+        elu_target = fresh_row.get_attribute("data-elu-name")
+        clickable_cell = fresh_row.locator(".matrix-cell:not(.cell-blocked):not(.cell-selected):not(.cell-full)").first
         struct_target = clickable_cell.get_attribute("data-structure")
 
         clickable_cell.click()
@@ -121,11 +122,66 @@ def run_tests():
         badge = page.locator(f".matrix-cell[data-elu='{elu_target}'][data-structure='{struct_target}'] .choice-badge")
         test("Attribution du Choix 1 reussie au clic", badge.count() == 1 and "Choix 1" in badge.inner_text())
 
-        # Annulation du voeu au 2eme clic
+        # 9. Test du dialogue de confirmation de libération de place (Option A)
         badge.click()
         time.sleep(0.5)
+        confirm_modal = page.locator("#confirmReleaseModal")
+        test("Modale de confirmation de liberation affichee au clic sur son voeu", confirm_modal.is_visible())
+        
+        # Test du bouton Annuler (conserver la place)
+        btn_cancel = page.locator("#btnCancelRelease")
+        btn_cancel.click()
+        time.sleep(0.5)
+        test("Modale fermee apres clic sur Annuler", not confirm_modal.is_visible())
+        test("Place toujours conservee apres Annuler", page.locator(f".matrix-cell[data-elu='{elu_target}'][data-structure='{struct_target}'] .choice-badge").count() == 1)
+
+        # Test de confirmation effective de la libération
+        badge.click()
+        time.sleep(0.5)
+        btn_confirm = page.locator("#btnConfirmRelease")
+        btn_confirm.click()
+        time.sleep(0.5)
         badge_after = page.locator(f".matrix-cell[data-elu='{elu_target}'][data-structure='{struct_target}'] .choice-badge")
-        test("Annulation du voeu reussie au reclic", badge_after.count() == 0)
+        test("Liberation de la place effective apres confirmation", badge_after.count() == 0)
+
+        # 9 bis. Test de structure déjà complète (l'Envol compte 2 élus : FONTVIEILLE Monique & COLSON Luce)
+        th_envol = page.locator("th.th-structure.structure-full[data-structure-id='l-envol']")
+        test("En-tete de l'Envol verrouille avec badge 'Complet (2/2)'", th_envol.count() == 1 and "Complet (2/2)" in th_envol.inner_text())
+
+        # Cellule d'un élu tiers sur l'Envol doit être .cell-full
+        other_elu_row = page.locator("tbody tr[data-elu-name='DUPLAIN Jocelyne']")
+        cell_full_envol = other_elu_row.locator(".matrix-cell[data-structure=\"l'Envol\"]")
+        test("Cellule de l'Envol grisee .cell-full pour un autre elu", "cell-full" in (cell_full_envol.get_attribute("class") or ""))
+
+        # Tentative de clic sur cette structure complète -> toast d'avertissement et aucun ajout
+        cell_full_envol.click()
+        time.sleep(0.3)
+        toast_full = page.locator(".toast.warn")
+        test("Tentative d inscription sur structure complete bloquee avec alerte", toast_full.count() >= 1 and "complète" in toast_full.last.inner_text())
+
+        # 9 ter. Test du plafond de 2 choix par élu
+        test_row = page.locator("tbody tr:not(:has(.choice-badge))").first
+        test_elu = test_row.get_attribute("data-elu-name")
+        
+        # Choix 1
+        page.locator(f"tr[data-elu-name='{test_elu}'] .matrix-cell:not(.cell-blocked):not(.cell-selected):not(.cell-full)").first.click()
+        time.sleep(0.5)
+        # Choix 2
+        page.locator(f"tr[data-elu-name='{test_elu}'] .matrix-cell:not(.cell-blocked):not(.cell-selected):not(.cell-full)").first.click()
+        time.sleep(0.5)
+        # Choix 3 (tentative bloquée par le plafond de 2)
+        page.locator(f"tr[data-elu-name='{test_elu}'] .matrix-cell:not(.cell-blocked):not(.cell-selected):not(.cell-full)").first.click()
+        time.sleep(0.5)
+        toast_limit = page.locator(".toast.warn")
+        test("Blocage et avertissement au 3eme choix (Plafond de 2 choix par elu)", toast_limit.count() >= 1 and "Plafond atteint" in toast_limit.last.inner_text())
+
+        # Nettoyage des 2 choix de test
+        test_badges = page.locator(f"tr[data-elu-name='{test_elu}'] .choice-badge")
+        while test_badges.count() > 0:
+            test_badges.first.click()
+            time.sleep(0.3)
+            page.locator("#btnConfirmRelease").click()
+            time.sleep(0.3)
 
         # 10. Test de tentative de clic sur cellule bloquee (neutralite)
         blocked_cell = page.locator(".matrix-cell.cell-blocked").first
@@ -135,6 +191,8 @@ def run_tests():
         test("Notification d incompatibilite communale affichee sur cellule bloquee", toast.count() >= 1)
 
         # 11. Test des pastilles d'accès rapide (défilement horizontal fluide)
+        page.eval_on_selector(".table-scroll-container", "el => el.scrollLeft = 0")
+        time.sleep(0.3)
         initial_scroll = page.eval_on_selector(".table-scroll-container", "el => el.scrollLeft")
         test("Position initiale de defilement horizontal a 0", initial_scroll == 0)
         

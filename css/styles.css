@@ -545,6 +545,26 @@ thead tr:nth-child(2) .col-sticky-2 {
     margin-top: 0.35rem;
 }
 
+.th-structure.structure-full {
+    background: #f1f5f9;
+}
+
+.structure-full-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    font-size: 0.65rem;
+    font-weight: 700;
+    color: #065f46;
+    background: #d1fae5;
+    border: 1px solid #a7f3d0;
+    padding: 0.12rem 0.35rem;
+    border-radius: 4px;
+    margin-top: 0.35rem;
+    box-shadow: 0 1px 2px rgba(6, 95, 70, 0.08);
+}
+
 .service-tag {
     font-size: 0.65rem;
     padding: 0.12rem 0.3rem;
@@ -579,7 +599,7 @@ thead tr:nth-child(2) .col-sticky-2 {
     position: relative;
 }
 
-.matrix-cell:not(.cell-blocked):not(.cell-selected):hover {
+.matrix-cell:not(.cell-blocked):not(.cell-selected):not(.cell-full):hover {
     background: #e0f2fe !important;
 }
 
@@ -606,6 +626,28 @@ thead tr:nth-child(2) .col-sticky-2 {
     justify-content: center;
     gap: 0.2rem;
     opacity: 0.8;
+}
+
+/* Case Complète (Quota de 2 candidats atteint) */
+.cell-full {
+    background: #f8fafc !important;
+    cursor: not-allowed;
+    color: #94a3b8;
+    position: relative;
+}
+
+.full-label {
+    font-size: 0.68rem;
+    font-weight: 600;
+    color: #64748b;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.2rem;
+    background: #e2e8f0;
+    padding: 0.15rem 0.35rem;
+    border-radius: 4px;
+    opacity: 0.9;
 }
 
 /* Cases sélectionnées avec badges de rangs 1 à 5 */
@@ -688,6 +730,41 @@ thead tr:nth-child(2) .col-sticky-2 {
     display: flex;
     justify-content: flex-end;
     gap: 0.75rem;
+}
+
+/* Modal Confirmation Libération */
+.modal-confirm-card {
+    max-width: 500px;
+    border-top: 4px solid #dc2626;
+}
+
+.confirm-header-title {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+}
+
+.confirm-warning-icon {
+    font-size: 1.4rem;
+}
+
+.confirm-release-note {
+    font-size: 0.8rem;
+    color: var(--color-text-muted);
+    background: #fff1f2;
+    border-left: 3px solid #f43f5e;
+    padding: 0.5rem 0.75rem;
+    border-radius: 4px;
+    margin-top: 0.75rem;
+}
+
+.btn-danger {
+    background: #dc2626;
+    color: #ffffff;
+    border: 1px solid #b91c1c;
+}
+.btn-danger:hover {
+    background: #b91c1c;
 }
 
 .code-snippet {
