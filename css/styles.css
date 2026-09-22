@@ -650,9 +650,48 @@ thead tr:nth-child(2) .col-sticky-2 {
     opacity: 0.9;
 }
 
-/* Cases sélectionnées avec badges de rangs 1 à 5 */
+/* Cases sélectionnées avec badge de vote (coche) */
 .cell-selected {
     font-weight: 700;
+    background: #f0fdf4 !important;
+}
+
+.cell-selected:hover {
+    background: #fef2f2 !important;
+}
+
+.vote-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.35rem;
+    padding: 0.3rem 0.65rem;
+    border-radius: 6px;
+    font-size: 0.78rem;
+    font-weight: 700;
+    background: #dcfce7;
+    border: 1.5px solid #16a34a;
+    color: #15803d;
+    box-shadow: 0 1px 2px rgba(22, 163, 74, 0.15);
+    transition: all 0.15s ease;
+    white-space: nowrap;
+}
+
+.vote-badge .vote-check {
+    font-size: 0.95rem;
+    font-weight: 900;
+    color: #16a34a;
+}
+
+.cell-selected:hover .vote-badge {
+    background: #fee2e2;
+    border-color: #ef4444;
+    color: #b91c1c;
+    box-shadow: 0 1px 3px rgba(239, 68, 68, 0.2);
+}
+
+.cell-selected:hover .vote-badge .vote-check {
+    color: #ef4444;
 }
 
 .choice-badge {

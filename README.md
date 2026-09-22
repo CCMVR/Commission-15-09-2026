@@ -17,21 +17,22 @@ Application web interactive destinée aux membres élus de la commission Enfance
    - Les élus issus de communes sans structures (ex. *Boisset*, *Malvalette*, *Tiranges*, *Valprivas*, *Solignac-sous-Roche*, *Saint-André-de-Chalencon*) peuvent postuler librement sur toutes les structures.
    - Les variantes d'écriture des communes (*Bas en Basset* vs *Bas-en-Basset*, *Monistrol sur Loire* vs *Monistrol-sur-Loire*) sont unifiées sans doublon.
 
-3. **Système de vœux ordonnés (2 choix max) & Verrouillage à 2 candidats** :
-   - Au clic sur une case autorisée, le vœu est attribué successivement : *Choix 1*, puis *Choix 2* (2 choix maximum par élu).
-   - Dès qu'une structure enregistre **2 personnes** inscrites, elle est considérée comme **complète** : son en-tête affiche `🔒 Complet (2/2)` et toutes ses cellules libres se grisent avec interdiction de clic pour les autres élus.
-   - **Sécurité anti-erreur (Option A)** : un clic sur une structure où l'élu est déjà positionné ouvre un dialogue de confirmation pour libérer la place, ce qui réouvre immédiatement le quota pour tous les autres membres.
+3. **Système de vote par coche (sans limite par élu) & Verrouillage à 2 votes par structure** :
+   - Au clic sur une case autorisée, le vote est validé par une coche verte (**✓ Voté**).
+   - Chaque élu peut cocher **autant de structures qu'il le souhaite** (aucun plafond par élu).
+   - Dès qu'une structure enregistre **2 votes**, elle est considérée comme **complète** : son en-tête affiche `🔒 Complet (2/2)` et toutes ses autres cellules se verrouillent pour les autres élus.
+   - **Retrait de vote sécurisé** : un clic sur une structure où l'élu a voté ouvre un dialogue de confirmation pour retirer le vote, ce qui réouvre immédiatement la place pour tous les autres membres.
 
 4. **Guide didactique « Marche à suivre »** :
    - Encart pédagogique placé en en-tête sous le logo pour expliciter les 4 étapes à suivre par les élus en séance.
 
 5. **Persistance en temps réel avec Supabase & Mode hors-ligne** :
-   - Les vœux sont enregistrés directement dans la base de données Supabase sur une table dédiée (`inscriptions_elus_commission_structures`).
+   - Les votes sont enregistrés directement dans la base de données Supabase sur une table dédiée (`inscriptions_elus_commission_structures`).
    - Si la table n'a pas encore été créée ou en cas d'absence de réseau, l'application bascule automatiquement sur le stockage local (`localStorage`) et propose le script SQL à copier.
    - Polling automatique toutes les 15 secondes pour actualiser les choix en direct lors de la réunion.
 
 6. **Outils d'animation pour le coordinateur** :
-   - Compteurs en temps réel : nombre d'élus ayant répondu, total des vœux, nombre de structures couvertes.
+   - Compteurs en temps réel : nombre d'élus ayant voté, total des votes, nombre de structures couvertes.
    - Barre de recherche instantanée par nom d'élu ou par commune.
    - Bouton d'export CSV compatible Excel (avec BOM UTF-8).
    - Bouton d'impression optimisé pour vidéoprojecteur ou tirage papier.
@@ -40,11 +41,20 @@ Application web interactive destinée aux membres élus de la commission Enfance
 
 ## 🚀 Étape 1 : Initialisation de la table Supabase
 
-La base Supabase étant mutualisée avec d'autres projets, le script suivant est **strictement non-destructif** (aucun `DROP`, création isolée de la table `inscriptions_elus_commission_structures`) :
+La base Supabase étant mutualisée avec d'autres projets, le script suivant est **strictement non-destructif** :
 
 1. Connectez-vous sur votre tableau de bord Supabase : [https://supabase.com/dashboard/project/bnloivgpihtsxydjkgyc](https://supabase.com/dashboard/project/bnloivgpihtsxydjkgyc)
 2. Ouvrez le **SQL Editor** dans le menu de gauche.
-3. Collez et exécutez le script contenu dans [`specs/001-inscription-elus-commission/contracts/supabase-schema.sql`](specs/001-inscription-elus-commission/contracts/supabase-schema.sql) :
+3. Si la table existe déjà, exécutez ce script pour lever la limite de 5 choix et la contrainte de rang unique :
+
+```sql
+ALTER TABLE public.inscriptions_elus_commission_structures DROP CONSTRAINT IF EXISTS inscriptions_elus_commission_structures_choix_rang_check;
+ALTER TABLE public.inscriptions_elus_commission_structures DROP CONSTRAINT IF EXISTS unique_elu_rang;
+ALTER TABLE public.inscriptions_elus_commission_structures ALTER COLUMN choix_rang DROP NOT NULL;
+ALTER TABLE public.inscriptions_elus_commission_structures ALTER COLUMN choix_rang SET DEFAULT 1;
+```
+
+Ou pour une création initiale :
 
 ```sql
 CREATE TABLE IF NOT EXISTS public.inscriptions_elus_commission_structures (
@@ -53,11 +63,10 @@ CREATE TABLE IF NOT EXISTS public.inscriptions_elus_commission_structures (
     elu_commune TEXT NOT NULL,
     structure_nom TEXT NOT NULL,
     structure_commune TEXT NOT NULL,
-    choix_rang INTEGER NOT NULL CHECK (choix_rang BETWEEN 1 AND 5),
+    choix_rang INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT unique_elu_structure UNIQUE (elu_nom, structure_nom),
-    CONSTRAINT unique_elu_rang UNIQUE (elu_nom, choix_rang)
+    CONSTRAINT unique_elu_structure UNIQUE (elu_nom, structure_nom)
 );
 
 CREATE INDEX IF NOT EXISTS idx_inscriptions_elu ON public.inscriptions_elus_commission_structures (elu_nom);

@@ -6,8 +6,8 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Commission Enfance Jeunesse Solidarités - Inscription des Élus aux Structures</title>
-    <link rel="stylesheet" href="css/styles.css?v=2.3">
+    <title>Commission Enfance Jeunesse Solidarités - Inscription et Vote des Élus</title>
+    <link rel="stylesheet" href="css/styles.css?v=2.4">
 </head>
 <body>
 
@@ -18,7 +18,7 @@
                 <img src="logo.png" alt="Logo de la collectivité" class="header-logo" onerror="this.style.display='none'">
                 <div class="header-title-group">
                     <h1>Commission Enfance Jeunesse Solidarités</h1>
-                    <p>Outil d'inscription et de positionnement des élus sur les structures du territoire pour y être élus référents</p>
+                    <p>Outil de vote et de positionnement des élus sur les structures du territoire pour y être élus référents</p>
                 </div>
             </div>
             <!-- Éléments masqués (non visibles) assurant la rétro-compatibilité totale si cache navigateur actif -->
@@ -33,7 +33,7 @@
             <div class="instructions-header">
                 <div class="instructions-title">
                     <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1e3a8a" stroke-width="2.5"><circle cx="12" cy="12" r="10"></circle><line x1="12" y1="16" x2="12" y2="12"></line><line x1="12" y1="8" x2="12.01" y2="8"></line></svg>
-                    <span>Marche à suivre pour formuler vos vœux d'investissement</span>
+                    <span>Marche à suivre pour voter et exprimer vos souhaits d'investissement</span>
                 </div>
             </div>
             <div class="instructions-steps">
@@ -46,19 +46,19 @@
                 <div class="instruction-step">
                     <div class="step-number">2</div>
                     <div class="step-text">
-                        <strong>Règle de neutralité</strong> : les structures situées sur votre propre commune sont <em>grisées</em> et impossibles à choisir.
+                        <strong>Règle de neutralité</strong> : les structures situées sur votre propre commune sont <em>grisées</em> et impossibles à cocher.
                     </div>
                 </div>
                 <div class="instruction-step">
                     <div class="step-number">3</div>
                     <div class="step-text">
-                        <strong>Attribuez vos vœux</strong> : cliquez sur la case d'une structure pour lui attribuer votre <em>Choix 1</em>, puis <em>Choix 2</em> (<strong>2 choix max</strong>). Dès que 2 élus sont inscrits sur une structure, elle devient <strong>complète</strong> et se verrouille.
+                        <strong>Votez par simple coche</strong> : cliquez sur la case d'une structure pour y apposer votre vote (<strong>✓</strong>). Chaque élu peut cocher <strong>autant de structures que souhaité</strong>. Dès que 2 élus ont voté pour une même structure, celle-ci devient <strong>complète (2/2)</strong> et se verrouille.
                     </div>
                 </div>
                 <div class="instruction-step">
                     <div class="step-number">4</div>
                     <div class="step-text">
-                        <strong>Sécurité & désinscription</strong> : un clic sur une case où vous êtes positionné(e) ouvre un dialogue pour confirmer si vous souhaitez libérer votre place.
+                        <strong>Retrait de vote</strong> : un clic sur une case où vous avez voté ouvre un dialogue pour confirmer le retrait de votre vote et libérer immédiatement la place.
                     </div>
                 </div>
             </div>
@@ -69,11 +69,11 @@
     <section class="toolbar-container">
         <div class="stats-bar">
             <div class="stat-pill">
-                <span>Élus inscrits :</span>
+                <span>Élus votants :</span>
                 <span id="statElusInscrits" class="stat-val">0 / 32</span>
             </div>
             <div class="stat-pill">
-                <span>Total vœux enregistrés :</span>
+                <span>Total des votes :</span>
                 <span id="statTotalVoeux" class="stat-val">0</span>
             </div>
             <div class="stat-pill">
@@ -148,19 +148,24 @@
                 <button id="btnCloseSqlModal" class="btn btn-secondary" style="padding: 0.25rem 0.5rem;">✕</button>
             </div>
             <div class="modal-body">
-                <p>Pour activer la persistance distante, copiez ce script SQL et exécutez-le dans le <strong>SQL Editor</strong> de votre projet Supabase. <em>Ce script crée uniquement la table dédiée <code>inscriptions_elus_commission_structures</code> et n'altère aucune autre table.</em></p>
-                <pre class="code-snippet" id="sqlCodeBlock">-- SCRIPT DE CRÉATION DÉDIÉ SUPABASE
+                <p>Pour activer ou adapter la persistance distante, copiez ce script SQL et exécutez-le dans le <strong>SQL Editor</strong> de votre projet Supabase. <em>Ce script est non-destructif et n'altère aucune autre table.</em></p>
+                <pre class="code-snippet" id="sqlCodeBlock">-- ADAPTATION DE LA TABLE POUR LE MODE VOTE PAR COCHE (SANS LIMITE DE NOMBRE PAR ÉLU) :
+ALTER TABLE public.inscriptions_elus_commission_structures DROP CONSTRAINT IF EXISTS inscriptions_elus_commission_structures_choix_rang_check;
+ALTER TABLE public.inscriptions_elus_commission_structures DROP CONSTRAINT IF EXISTS unique_elu_rang;
+ALTER TABLE public.inscriptions_elus_commission_structures ALTER COLUMN choix_rang DROP NOT NULL;
+ALTER TABLE public.inscriptions_elus_commission_structures ALTER COLUMN choix_rang SET DEFAULT 1;
+
+-- SCRIPT DE CRÉATION INITIALE (SI TABLE NON CRÉÉE) :
 CREATE TABLE IF NOT EXISTS public.inscriptions_elus_commission_structures (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     elu_nom TEXT NOT NULL,
     elu_commune TEXT NOT NULL,
     structure_nom TEXT NOT NULL,
     structure_commune TEXT NOT NULL,
-    choix_rang INTEGER NOT NULL CHECK (choix_rang BETWEEN 1 AND 5),
+    choix_rang INTEGER DEFAULT 1,
     created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
-    CONSTRAINT unique_elu_structure UNIQUE (elu_nom, structure_nom),
-    CONSTRAINT unique_elu_rang UNIQUE (elu_nom, choix_rang)
+    CONSTRAINT unique_elu_structure UNIQUE (elu_nom, structure_nom)
 );
 
 CREATE INDEX IF NOT EXISTS idx_inscriptions_elu ON public.inscriptions_elus_commission_structures (elu_nom);
@@ -197,7 +202,7 @@ END $$;</pre>
             <div class="modal-header">
                 <div>
                     <h3>🔒 Répartition Prévisionnelle des Élus Référents</h3>
-                    <p class="modal-subtitle">Attribution optimisée (1 structure par élu votant, maximum 3 élus par structure)</p>
+                    <p class="modal-subtitle">Attribution optimisée (1 structure par élu votant parmi ses structures cochées, maximum 2 à 3 élus par structure)</p>
                 </div>
                 <button id="btnCloseRepartitionModal" class="btn btn-secondary" style="padding: 0.25rem 0.5rem;">✕</button>
             </div>
@@ -233,29 +238,29 @@ END $$;</pre>
             </div>
 
             <div class="modal-footer">
-                <span class="repartition-footer-note">💡 Algorithme équitable : priorité au choix 1, bascule sur choix 2 ou 3 si nécessaire, maximum strict de 3 élus par structure.</span>
+                <span class="repartition-footer-note">💡 Algorithme équitable : affectation équilibrée sur l'une des structures cochées par chaque élu, maximum 2 à 3 élus par structure.</span>
                 <button id="btnDismissRepartitionModal" class="btn btn-primary">Fermer</button>
             </div>
         </div>
     </div>
 
-    <!-- 8. MODAL DE CONFIRMATION DE LIBÉRATION DE PLACE (OPTION A) -->
+    <!-- 8. MODAL DE CONFIRMATION DE RETRAIT DU VOTE -->
     <div id="confirmReleaseModal" class="modal-backdrop" style="display: none;">
         <div class="modal-card modal-confirm-card">
             <div class="modal-header">
                 <div class="confirm-header-title">
                     <span class="confirm-warning-icon">⚠️</span>
-                    <h3>Confirmer la libération de votre place</h3>
+                    <h3>Confirmer le retrait de votre vote</h3>
                 </div>
                 <button id="btnCloseConfirmReleaseModal" class="btn btn-secondary" style="padding: 0.25rem 0.5rem;">✕</button>
             </div>
             <div class="modal-body">
-                <p id="confirmReleaseMessage" style="font-size: 0.95rem; font-weight: 600; color: #1e293b; margin-bottom: 0.75rem;">Êtes-vous sûr(e) de vouloir libérer votre place dans cette structure ?</p>
-                <p class="confirm-release-note">Cette action libérera immédiatement la place dans cette structure pour les autres membres de la commission.</p>
+                <p id="confirmReleaseMessage" style="font-size: 0.95rem; font-weight: 600; color: #1e293b; margin-bottom: 0.75rem;">Êtes-vous sûr(e) de vouloir retirer votre vote pour cette structure ?</p>
+                <p class="confirm-release-note">Cette action retirera votre vote et libérera immédiatement la place dans cette structure pour les autres membres de la commission.</p>
             </div>
             <div class="modal-footer">
-                <button id="btnCancelRelease" class="btn btn-secondary">Annuler (Conserver ma place)</button>
-                <button id="btnConfirmRelease" class="btn btn-danger">Confirmer et libérer la place</button>
+                <button id="btnCancelRelease" class="btn btn-secondary">Annuler (Conserver mon vote)</button>
+                <button id="btnConfirmRelease" class="btn btn-danger">Confirmer et retirer le vote</button>
             </div>
         </div>
     </div>
@@ -264,6 +269,6 @@ END $$;</pre>
     <div id="toastContainer" class="toast-container"></div>
 
     <!-- 8. SCRIPTS APPLICATIFS -->
-    <script type="module" src="js/app.js?v=2.3"></script>
+    <script type="module" src="js/app.js?v=2.4"></script>
 </body>
 </html>

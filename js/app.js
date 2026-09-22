@@ -1,7 +1,8 @@
 import { ELUS, STRUCTURES, COMMUNES_AVEC_STRUCTURES, isCommuneBlocked } from "./data.js?v=2.1";
 import { supabaseClient } from "./supabase.js?v=2.1";
 
-const MAX_CHOICES_PER_ELU = 2;
+// Règle métier : chaque élu peut voter pour autant de structures que souhaité,
+// mais chaque structure se bloque dès que 2 élus ont voté pour elle (quota max de 2).
 const MAX_CANDIDATES_PER_STRUCTURE = 2;
 
 class CommissionApp {
@@ -343,26 +344,19 @@ class CommissionApp {
         }
         const MAX_PER_STRUCTURE = 3;
 
-        const rankCost = (r) => {
-            if (r === 1) return 0;
-            if (r === 2) return 15;
-            if (r === 3) return 35;
-            if (r === 4) return 65;
-            return 105;
-        };
-
         const loadPenalty = (count, hadDemand) => {
             if (count === 0) return hadDemand ? 15 : 0;
             if (count === 1) return 5;
-            if (count === 2 || count === 3) return 0; // Cible idéale : 2 à 3 élus
-            // STRICT MAXIMUM DE 3 : Pénalité rédhibitoire pour tout dépassement de 3
+            if (count === 2) return 0; // Cible idéale : 2 élus (quota max recommandé)
+            if (count === 3) return 2; // Toléré jusqu'à 3
+            // Pénalité rédhibitoire pour tout dépassement de 3
             return 100000 * (count - 3);
         };
 
         const demandedStructures = new Set();
         voters.forEach(v => v.choices.forEach(c => demandedStructures.add(c.structure_nom)));
 
-        // Tri des votants : ceux qui ont le moins de choix d'abord pour préserver leurs options
+        // Tri des votants : ceux qui ont coché le moins de structures d'abord pour préserver leurs options
         const sortedVoters = [...voters].sort((a, b) => a.choices.length - b.choices.length);
         
         const assignment = {};
@@ -396,7 +390,7 @@ class CommissionApp {
                     const elusInS = voters.filter(v => assignment[v.elu_nom] === s.name);
                     let moved = false;
 
-                    // 1. Déplacement direct vers un choix alternatif avec < 3 élus
+                    // 1. Déplacement direct vers un autre choix avec < 3 élus
                     for (const v of elusInS) {
                         const altChoice = v.choices.find(c => c.structure_nom !== s.name && (structureCounts[c.structure_nom] || 0) < MAX_PER_STRUCTURE);
                         if (altChoice) {
@@ -444,11 +438,6 @@ class CommissionApp {
 
         const calcTotalCost = () => {
             let cost = 0;
-            voters.forEach(v => {
-                const assignedStruct = assignment[v.elu_nom];
-                const ch = v.choices.find(c => c.structure_nom === assignedStruct);
-                cost += rankCost(ch ? ch.rang : 5);
-            });
             this.structures.forEach(s => {
                 cost += loadPenalty(structureCounts[s.name] || 0, demandedStructures.has(s.name));
             });
@@ -463,12 +452,11 @@ class CommissionApp {
             improved = false;
             iteration++;
 
-            // A. Déplacement individuel vers un autre choix (STRICTEMENT plafonné à 3 élus max)
+            // A. Déplacement individuel vers une autre structure cochée (plafonné à 3 max)
             for (const v of voters) {
                 const curStruct = assignment[v.elu_nom];
                 for (const ch of v.choices) {
                     if (ch.structure_nom === curStruct) continue;
-                    // Interdiction de déplacer un élu vers une structure ayant déjà 3 élus ou plus
                     if ((structureCounts[ch.structure_nom] || 0) >= MAX_PER_STRUCTURE) continue;
 
                     assignment[v.elu_nom] = ch.structure_nom;
@@ -491,7 +479,7 @@ class CommissionApp {
 
             if (improved) continue;
 
-            // B. Échange (swap) entre 2 votants (conserve strictement les effectifs par structure)
+            // B. Échange (swap) entre 2 votants
             for (let i = 0; i < voters.length; i++) {
                 for (let j = i + 1; j < voters.length; j++) {
                     const v1 = voters[i];
@@ -522,7 +510,6 @@ class CommissionApp {
             }
         }
 
-        // Sécurité finale : s'assurer qu'aucun dépassement résiduel n'existe
         resolveOvercapacity();
 
         const structureAllocations = {};
@@ -533,32 +520,26 @@ class CommissionApp {
             };
         });
 
-        let rank1Count = 0;
-        let rank2Count = 0;
-        let rank3PlusCount = 0;
-
         voters.forEach(v => {
             const assignedStruct = assignment[v.elu_nom];
-            const ch = v.choices.find(c => c.structure_nom === assignedStruct);
-            const rang = ch ? ch.rang : 1;
-            if (rang === 1) rank1Count++;
-            else if (rang === 2) rank2Count++;
-            else rank3PlusCount++;
-
             if (structureAllocations[assignedStruct]) {
                 structureAllocations[assignedStruct].elus.push({
                     elu_nom: v.elu_nom,
                     elu_commune: v.elu_commune,
-                    rang: rang,
                     allChoices: v.choices
                 });
             }
         });
 
-        let balancedCount = 0;
+        let twoElusCount = 0;
+        let oneEluCount = 0;
+        let coveredCount = 0;
+
         this.structures.forEach(s => {
             const count = structureAllocations[s.name].elus.length;
-            if (count >= 2 && count <= 3) balancedCount++;
+            if (count === 2) twoElusCount++;
+            if (count === 1) oneEluCount++;
+            if (count > 0) coveredCount++;
         });
 
         return {
@@ -567,12 +548,10 @@ class CommissionApp {
             structureAllocations,
             stats: {
                 totalVoters: voters.length,
-                rank1Count,
-                rank2Count,
-                rank3PlusCount,
-                rank1Percent: voters.length > 0 ? Math.round((rank1Count / voters.length) * 100) : 0,
-                rank2Percent: voters.length > 0 ? Math.round((rank2Count / voters.length) * 100) : 0,
-                balancedStructures: balancedCount
+                assignedCount: Object.keys(assignment).length,
+                twoElusCount,
+                oneEluCount,
+                coveredCount
             }
         };
     }
@@ -586,19 +565,19 @@ class CommissionApp {
         this.repartitionKpiBar.innerHTML = `
             <div class="repartition-kpi-item">
                 <span class="repartition-kpi-label">Élus votants affectés</span>
-                <span class="repartition-kpi-value">${res.stats.totalVoters} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">/ ${this.elus.length}</span></span>
+                <span class="repartition-kpi-value">${res.stats.assignedCount} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">/ ${this.elus.length}</span></span>
             </div>
             <div class="repartition-kpi-item">
-                <span class="repartition-kpi-label">Affectés sur Choix 1</span>
-                <span class="repartition-kpi-value" style="color:#d97706;">${res.stats.rank1Count} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">(${res.stats.rank1Percent}%)</span></span>
+                <span class="repartition-kpi-label">Vœux satisfaits</span>
+                <span class="repartition-kpi-value" style="color:#059669;">100% <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">(structure cochée)</span></span>
             </div>
             <div class="repartition-kpi-item">
-                <span class="repartition-kpi-label">Affectés sur Choix 2</span>
-                <span class="repartition-kpi-value" style="color:#2563eb;">${res.stats.rank2Count} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">(${res.stats.rank2Percent}%)</span></span>
+                <span class="repartition-kpi-label">Structures à 2 élus (Complet)</span>
+                <span class="repartition-kpi-value" style="color:#2563eb;">${res.stats.twoElusCount} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">/ 20</span></span>
             </div>
             <div class="repartition-kpi-item">
-                <span class="repartition-kpi-label">Structures à 2-3 élus (Idéal)</span>
-                <span class="repartition-kpi-value" style="color:#059669;">${res.stats.balancedStructures} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">/ 20</span></span>
+                <span class="repartition-kpi-label">Structures couvertes (≥1 élu)</span>
+                <span class="repartition-kpi-value" style="color:#10b981;">${res.stats.coveredCount} <span style="font-size:0.85rem; font-weight:normal; color:#64748b;">/ 20</span></span>
             </div>
         `;
 
@@ -612,8 +591,8 @@ class CommissionApp {
             this.repartitionContent.innerHTML = `
                 <div style="text-align:center; padding:3rem 1rem; color:#64748b;">
                     <div style="font-size:2.5rem; margin-bottom:0.75rem;">🗳️</div>
-                    <h4 style="color:#1e293b; margin-bottom:0.35rem;">Aucun vœu enregistré pour le moment</h4>
-                    <p style="font-size:0.875rem;">Dès que les élus exprimeront des choix dans la grille, l'attribution prévisionnelle apparaîtra automatiquement ici.</p>
+                    <h4 style="color:#1e293b; margin-bottom:0.35rem;">Aucun vote enregistré pour le moment</h4>
+                    <p style="font-size:0.875rem;">Dès que les élus exprimeront des votes dans la grille, l'attribution prévisionnelle apparaîtra automatiquement ici.</p>
                 </div>`;
             return;
         }
@@ -674,7 +653,7 @@ class CommissionApp {
                                     ${this.escapeHtml(e.elu_nom)}
                                     <span class="rep-elu-commune">(${this.escapeHtml(e.elu_commune)})</span>
                                 </span>
-                                <span class="choice-badge c${e.rang}">Choix ${e.rang}</span>
+                                <span class="vote-badge"><span class="vote-check">✓</span> Voté</span>
                             </div>`;
                     });
                 }
@@ -694,8 +673,8 @@ class CommissionApp {
                             <th>Commune d'élection</th>
                             <th>Structure affectée</th>
                             <th>Commune structure</th>
-                            <th>Vœu satisfait</th>
-                            <th>Autres vœux exprimés</th>
+                            <th>Statut</th>
+                            <th>Toutes les structures cochées</th>
                         </tr>
                     </thead>
                     <tbody>`;
@@ -704,11 +683,8 @@ class CommissionApp {
             sortedVoters.forEach(v => {
                 const assignedStructName = res.assignment[v.elu_nom];
                 const assignedStruct = this.structures.find(s => s.name === assignedStructName);
-                const ch = v.choices.find(c => c.structure_nom === assignedStructName);
-                const rang = ch ? ch.rang : 1;
-                const otherChoices = v.choices
-                    .filter(c => c.structure_nom !== assignedStructName)
-                    .map(c => `${c.structure_nom} (C${c.rang})`)
+                const allChoicesList = v.choices
+                    .map(c => c.structure_nom)
                     .join(", ");
 
                 html += `
@@ -717,8 +693,8 @@ class CommissionApp {
                         <td>${this.escapeHtml(v.elu_commune)}</td>
                         <td><strong>${this.escapeHtml(assignedStructName)}</strong></td>
                         <td>${this.escapeHtml(assignedStruct ? assignedStruct.commune : "")}</td>
-                        <td><span class="choice-badge c${rang}">Choix ${rang}</span></td>
-                        <td class="rep-other-choices">${otherChoices ? this.escapeHtml(otherChoices) : '<span style="opacity:0.5;">Aucun</span>'}</td>
+                        <td><span class="vote-badge"><span class="vote-check">✓</span> Retenue</span></td>
+                        <td class="rep-other-choices">${allChoicesList ? this.escapeHtml(allChoicesList) : '<span style="opacity:0.5;">Aucun</span>'}</td>
                     </tr>`;
             });
 
@@ -730,12 +706,12 @@ class CommissionApp {
     exportRepartitionCsv() {
         const res = this.currentAllocation || this.computeOptimalAllocation();
         if (!res || res.voters.length === 0) {
-            this.showToast("Aucun vœu à exporter pour le moment.", "warn");
+            this.showToast("Aucun vote à exporter pour le moment.", "warn");
             return;
         }
 
         let csvContent = "\uFEFF"; // BOM UTF-8
-        csvContent += '"Structure";"Commune Structure";"Élu référent affecté";"Commune de l\'élu";"Vœu satisfait";"Date extraction"\r\n';
+        csvContent += '"Structure";"Commune Structure";"Élu référent affecté";"Commune de l\'élu";"Statut du vote";"Date extraction"\r\n';
 
         this.structures.forEach(s => {
             const alloc = res.structureAllocations[s.name];
@@ -743,7 +719,7 @@ class CommissionApp {
                 csvContent += `"${s.name}";"${s.commune}";"--- Aucun élu affecté ---";"";"";"${new Date().toLocaleString('fr-FR')}"\r\n`;
             } else {
                 alloc.elus.forEach(e => {
-                    csvContent += `"${s.name}";"${s.commune}";"${e.elu_nom}";"${e.elu_commune}";"Choix ${e.rang}";"${new Date().toLocaleString('fr-FR')}"\r\n`;
+                    csvContent += `"${s.name}";"${s.commune}";"${e.elu_nom}";"${e.elu_commune}";"Structure cochée";"${new Date().toLocaleString('fr-FR')}"\r\n`;
                 });
             }
         });
@@ -837,7 +813,7 @@ class CommissionApp {
                 }).join("");
 
                 const fullBadge = isFull
-                    ? `<div class="structure-full-badge" title="Structure complète : quota de 2 élus référents atteint">🔒 Complet (2/2)</div>`
+                    ? `<div class="structure-full-badge" title="Structure complète : 2 élus ont voté pour cette structure">🔒 Complet (2/2)</div>`
                     : '';
 
                 tr2 += `<th class="th-structure ${isFull ? 'structure-full' : ''}" data-structure-id="${s.id}">
@@ -901,29 +877,28 @@ class CommissionApp {
                         html += `<td class="matrix-cell cell-blocked" 
                                      data-elu="${this.escapeHtml(elu.name)}" 
                                      data-structure="${this.escapeHtml(s.name)}" 
-                                     title="Commune d'élection (${this.escapeHtml(elu.commune)}) : non sélectionnable">
+                                     title="Commune d'élection (${this.escapeHtml(elu.commune)}) : non sélectionnable (neutralité)">
                             <span class="blocked-label">🔒 Inéligible</span>
                         </td>`;
                     } else if (voeu) {
-                        const rang = voeu.choix_rang;
                         html += `<td class="matrix-cell cell-selected" 
                                      data-elu="${this.escapeHtml(elu.name)}" 
                                      data-structure="${this.escapeHtml(s.name)}" 
-                                     title="Cliquez pour libérer votre place (Choix ${rang})">
-                            <span class="choice-badge c${rang}">Choix ${rang}</span>
+                                     title="Voté par ${this.escapeHtml(elu.name)} — Cliquez pour retirer votre vote">
+                            <span class="vote-badge"><span class="vote-check">✓</span> Voté</span>
                         </td>`;
                     } else if (isFull) {
                         html += `<td class="matrix-cell cell-full" 
                                      data-elu="${this.escapeHtml(elu.name)}" 
                                      data-structure="${this.escapeHtml(s.name)}" 
-                                     title="Structure complète : quota de 2 élus référents déjà atteint">
+                                     title="Structure complète : quota de 2 votes déjà atteint">
                             <span class="full-label">🔒 Complet (2/2)</span>
                         </td>`;
                     } else {
                         html += `<td class="matrix-cell" 
                                      data-elu="${this.escapeHtml(elu.name)}" 
                                      data-structure="${this.escapeHtml(s.name)}" 
-                                     title="Cliquez pour choisir cette structure">
+                                     title="Cliquez pour voter pour cette structure">
                         </td>`;
                     }
                 });
@@ -952,7 +927,7 @@ class CommissionApp {
         // 1. Règle d'incompatibilité communale
         if (isCommuneBlocked(elu.commune, structure.commune)) {
             this.showToast(
-                `Cette structure est située sur votre commune (${elu.commune}). Conformément à la règle de neutralité, vous ne pouvez pas la choisir.`,
+                `Cette structure est située sur votre commune (${elu.commune}). Conformément à la règle de neutralité, vous ne pouvez pas voter pour elle.`,
                 "warn"
             );
             return;
@@ -964,7 +939,7 @@ class CommissionApp {
 
         const existingVoeu = eluVoeux.find(v => v.structure_nom === structure.name);
 
-        // 2. Désélection d'un choix existant avec confirmation (Option A)
+        // 2. Désélection d'un vote existant avec confirmation
         if (existingVoeu) {
             const rangSupprime = existingVoeu.choix_rang;
 
@@ -972,13 +947,14 @@ class CommissionApp {
                 // Retrait local immédiat (optimiste)
                 this.inscriptions = this.inscriptions.filter(i => !(i.elu_nom === elu.name && i.structure_nom === structure.name));
 
-                // Réindexation des choix supérieurs
+                // Réindexation discrète pour intégrité base de données
                 const voeuxRestants = this.inscriptions.filter(i => i.elu_nom === elu.name);
                 const updatesToPersist = [];
 
-                voeuxRestants.forEach(v => {
-                    if (v.choix_rang > rangSupprime) {
-                        v.choix_rang -= 1;
+                voeuxRestants.forEach((v, idx) => {
+                    const expectedRang = idx + 1;
+                    if (v.choix_rang !== expectedRang) {
+                        v.choix_rang = expectedRang;
                         updatesToPersist.push(v);
                     }
                 });
@@ -987,7 +963,7 @@ class CommissionApp {
                 this.renderTableBody();
                 this.updateStats();
 
-                this.showToast(`Place libérée sur ${structure.name} pour ${elu.name}. Vos choix restants ont été réordonnés.`, "success");
+                this.showToast(`Vote retiré sur ${structure.name} pour ${elu.name}.`, "success");
 
                 // Persistance Supabase
                 await supabaseClient.deleteInscription(elu.name, structure.name);
@@ -997,32 +973,29 @@ class CommissionApp {
             };
 
             this.openConfirmReleaseModal(
-                `Attention : ${elu.name} est actuellement positionné(e) sur la structure "${structure.name}" (Choix ${existingVoeu.choix_rang}). Souhaitez-vous libérer cette place ?`,
+                `Attention : ${elu.name} a voté pour la structure "${structure.name}". Souhaitez-vous retirer ce vote et libérer la place ?`,
                 executeRelease
             );
             return;
         }
 
-        // 3. Vérification de saturation de la structure (Quota max de 2 candidats)
+        // 3. Vérification de saturation de la structure (Quota max de 2 votes)
         const candCount = this.inscriptions.filter(i => i.structure_nom === structure.name).length;
         if (candCount >= MAX_CANDIDATES_PER_STRUCTURE) {
             this.showToast(
-                `Cette structure est complète (quota maximal de ${MAX_CANDIDATES_PER_STRUCTURE} personnes atteint). Plus aucune inscription n'est possible dessus.`,
+                `Cette structure est complète (quota maximal de ${MAX_CANDIDATES_PER_STRUCTURE} votes atteint). Plus aucun vote n'est possible dessus.`,
                 "warn"
             );
             return;
         }
 
-        // 4. Ajout d'un nouveau choix (Plafond de 2 vœux max par élu)
-        if (eluVoeux.length >= MAX_CHOICES_PER_ELU) {
-            this.showToast(
-                `Plafond atteint : ${elu.name} a déjà formulé ses ${MAX_CHOICES_PER_ELU} choix (maximum autorisé). Cliquez sur un choix existant pour libérer votre place avant d'en choisir un autre.`,
-                "warn"
-            );
-            return;
+        // 4. Ajout d'un nouveau vote (Chaque élu peut voter pour autant de structures que souhaité)
+        const usedRangs = eluVoeux.map(v => v.choix_rang || 1);
+        let newRang = 1;
+        while (usedRangs.includes(newRang)) {
+            newRang++;
         }
 
-        const newRang = eluVoeux.length + 1;
         const newRecord = {
             id: `temp-${Date.now()}`,
             elu_nom: elu.name,
@@ -1039,7 +1012,7 @@ class CommissionApp {
         this.renderTableBody();
         this.updateStats();
 
-        this.showToast(`Choix ${newRang} attribué à ${structure.name} pour ${elu.name} !`, "success");
+        this.showToast(`Vote enregistré sur ${structure.name} pour ${elu.name} !`, "success");
 
         // Envoi Supabase
         const saved = await supabaseClient.addInscription(
@@ -1070,33 +1043,33 @@ class CommissionApp {
 
     exportCsv() {
         if (this.inscriptions.length === 0) {
-            this.showToast("Aucun vœu enregistré pour le moment.", "warn");
+            this.showToast("Aucun vote enregistré pour le moment.", "warn");
             return;
         }
 
-        // Tri par Élu puis par Rang de choix
+        // Tri par Élu puis par Structure
         const sorted = [...this.inscriptions].sort((a, b) => {
             if (a.elu_nom !== b.elu_nom) return a.elu_nom.localeCompare(b.elu_nom);
-            return a.choix_rang - b.choix_rang;
+            return a.structure_nom.localeCompare(b.structure_nom);
         });
 
         let csvContent = "\uFEFF"; // BOM pour prise en compte des accents dans Excel
-        csvContent += "Élu;Commune de l'Élu;Rang Choix;Structure Retenue;Commune de la Structure;Date Enregistrement\r\n";
+        csvContent += "Élu;Commune de l'Élu;Statut Vote;Structure Votée;Commune de la Structure;Date Enregistrement\r\n";
 
         sorted.forEach(row => {
-            csvContent += `"${row.elu_nom}";"${row.elu_commune}";"Choix ${row.choix_rang}";"${row.structure_nom}";"${row.structure_commune}";"${row.created_at || ''}"\r\n`;
+            csvContent += `"${row.elu_nom}";"${row.elu_commune}";"Voté";"${row.structure_nom}";"${row.structure_commune}";"${row.created_at || ''}"\r\n`;
         });
 
         const blob = new Blob([csvContent], { type: "text/csv;charset=utf-8;" });
-        const link = document.createElement("a");
         const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
         link.setAttribute("href", url);
-        link.setAttribute("download", `inscriptions_commission_enfance_jeunesse_${new Date().toISOString().slice(0,10)}.csv`);
+        link.setAttribute("download", `votes_commission_enfance_jeunesse_${new Date().toISOString().slice(0,10)}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
 
-        this.showToast("Fichier CSV exporté avec succès.", "success");
+        this.showToast("Fichier CSV des votes exporté avec succès.", "success");
     }
 
     openSqlModal() {
